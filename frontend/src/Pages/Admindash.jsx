@@ -26,7 +26,7 @@ const AdminDashboard = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-
+  const [events, setEvents] = useState([]);
   
   // Analytics state with default values
   const [analyticsData, setAnalyticsData] = useState({
@@ -45,6 +45,108 @@ const AdminDashboard = () => {
     tasksCompleted: 5,
     tasksInProgress: 8,
     upcomingLeaves: 2
+  };
+
+  const fetchEvents = async () => {
+    try {
+      setIsLoading(true);
+      setErrorMessage('');
+      
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        console.error('No authentication token found');
+        setErrorMessage('Authentication token not found');
+        setIsLoading(false);
+        
+        // Fallback to mock events if no token
+        setEvents([
+          {
+            id: 1,
+            title: "Monthly Staff Meeting",
+            start: "2025-04-12T09:00:00",
+            end: "2025-04-12T10:30:00",
+            location: "Conference Room",
+            type: "meeting"
+          },
+          {
+            id: 2,
+            title: "Project Deadline: Website Redesign",
+            start: "2025-04-15T00:00:00",
+            end: "2025-04-15T23:59:59",
+            location: "Marketing Team",
+            type: "deadline"
+          }
+        ]);
+        return;
+      }
+      
+      console.log('Fetching events data...');
+      const response = await axios.get('http://localhost:5000/api/events', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      console.log('Events data received:', response.data);
+      
+      if (response.data && Array.isArray(response.data.events)) {
+        setEvents(response.data.events);
+      } else {
+        console.error('Invalid events data structure received:', response.data);
+        setErrorMessage('Invalid data structure received from server');
+        // Fallback to mock events
+        setEvents([
+          {
+            id: 1,
+            title: "Monthly Staff Meeting",
+            start: "2025-04-12T09:00:00",
+            end: "2025-04-12T10:30:00",
+            location: "Conference Room",
+            type: "meeting"
+          },
+          {
+            id: 2,
+            title: "Project Deadline: Website Redesign",
+            start: "2025-04-15T00:00:00",
+            end: "2025-04-15T23:59:59",
+            location: "Marketing Team",
+            type: "deadline"
+          }
+        ]);
+      }
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error fetching events data:', error);
+      setErrorMessage(`Failed to fetch events: ${error.message}`);
+      setIsLoading(false);
+      
+      // Fallback to mock events on error
+      setEvents([
+        {
+          id: 1,
+          title: "Monthly Staff Meeting",
+          start: "2025-04-12T09:00:00",
+          end: "2025-04-12T10:30:00",
+          location: "Conference Room",
+          type: "meeting"
+        },
+        {
+          id: 2,
+          title: "Project Deadline: Website Redesign",
+          start: "2025-04-15T00:00:00",
+          end: "2025-04-15T23:59:59",
+          location: "Marketing Team",
+          type: "deadline"
+        }
+      ]);
+    }
+  };
+
+  const refreshDashboardData = () => {
+    fetchAnalyticsData();
+    fetchEvents();
   };
   
   // Function to fetch analytics data
@@ -105,13 +207,6 @@ const AdminDashboard = () => {
     }
   };
   
-  // Handle logout
-  // const handleLogout = () => {
-  //   localStorage.removeItem('token');
-  //   localStorage.removeItem('user');
-  //   setIsLoggedIn(false);
-  //   setUsername("");
-  // };
   const handleLogout = (e) => {
     e.preventDefault();
     console.log("Logout clicked");
@@ -137,8 +232,9 @@ const AdminDashboard = () => {
         setIsLoggedIn(true);
         setUsername(userData.username || "User");
         
-        // Fetch analytics data when component mounts and user is logged in
+        // Fetch analytics and events data when component mounts and user is logged in
         fetchAnalyticsData();
+        fetchEvents();
       } catch (error) {
         console.error("Error parsing stored user data:", error);
         localStorage.removeItem('user');
@@ -146,6 +242,24 @@ const AdminDashboard = () => {
     } else {
       // If not logged in, still show some data for demo purposes
       setAnalyticsData(mockAnalyticsData);
+      setEvents([
+        {
+          id: 1,
+          title: "Monthly Staff Meeting",
+          start: "2025-04-12T09:00:00",
+          end: "2025-04-12T10:30:00",
+          location: "Conference Room",
+          type: "meeting"
+        },
+        {
+          id: 2,
+          title: "Project Deadline: Website Redesign",
+          start: "2025-04-15T00:00:00",
+          end: "2025-04-15T23:59:59",
+          location: "Marketing Team",
+          type: "deadline"
+        }
+      ]);
       setIsLoading(false);
     }
   }, []);
@@ -153,6 +267,110 @@ const AdminDashboard = () => {
   // Refresh analytics data when needed (e.g., after task update)
   const refreshAnalytics = () => {
     fetchAnalyticsData();
+  };
+
+  const renderUpcomingEvents = () => {
+    if (isLoading) {
+      return (
+        <div className="flex justify-center items-center py-8">
+          <div className="animate-pulse text-gray-400">Loading events...</div>
+        </div>
+      );
+    }
+  
+    if (events.length === 0) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          No upcoming events scheduled
+        </div>
+      );
+    }
+  
+    // Sort events by start date
+    const sortedEvents = [...events].sort((a, b) => 
+      // Use the _id as a fallback for events that don't have a start date
+      (new Date(a.start || a.date || 0) - new Date(b.start || b.date || 0))
+    );
+    
+    // Take only the first few events
+    const upcomingEvents = sortedEvents.slice(0, 2);
+    
+    return (
+      <div className="space-y-3">
+        {upcomingEvents.map(event => {
+          // Use _id as the key if id is not available
+          const eventId = event.id || event._id;
+          // Use date field if start is not available
+          const eventStart = event.start || event.date;
+          const eventEnd = event.end || event.date;
+          
+          // Only continue if we have valid data to display
+          if (!eventId || !eventStart) {
+            return null;
+          }
+          
+          const eventDate = new Date(eventStart);
+          const month = eventDate.toLocaleString('default', { month: 'short' }).toUpperCase();
+          const day = eventDate.getDate();
+          
+          // Determine background color based on event type
+          let bgColor = "bg-blue-50";
+          let borderColor = "border-blue-100";
+          let dateTextColor = "text-blue-800";
+          let dateBorderColor = "border-blue-200";
+          
+          if (event.type === "deadline") {
+            bgColor = "bg-green-50";
+            borderColor = "border-green-100";
+            dateTextColor = "text-green-800";
+            dateBorderColor = "border-green-200";
+          } else if (event.type === "leave") {
+            bgColor = "bg-purple-50";
+            borderColor = "border-purple-100";
+            dateTextColor = "text-purple-800";
+            dateBorderColor = "border-purple-200";
+          }
+          
+          // Format time for display
+          let timeDisplay = "";
+          if (eventStart && eventEnd) {
+            try {
+              const startTime = new Date(eventStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const endTime = new Date(eventEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              timeDisplay = `${startTime} - ${endTime}`;
+              
+              // Check if it's an all-day event
+              const startDay = new Date(eventStart).setHours(0, 0, 0, 0);
+              const endDay = new Date(eventEnd).setHours(0, 0, 0, 0);
+              const durationHours = (new Date(eventEnd) - new Date(eventStart)) / (1000 * 60 * 60);
+              
+              if (durationHours >= 23 && durationHours <= 25) {
+                timeDisplay = "All Day";
+              }
+            } catch (e) {
+              console.error("Error formatting time:", e);
+              timeDisplay = "Time not available";
+            }
+          }
+          
+          return (
+            <div key={eventId} className={`flex items-start p-3 ${bgColor} rounded border ${borderColor}`}>
+              <div className={`mr-3 bg-white p-2 rounded-lg border ${dateBorderColor} ${dateTextColor} text-center`}>
+                <div className="text-xs font-bold">{month}</div>
+                <div className="text-lg font-bold">{day}</div>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold">{event.title}</h4>
+                <p className="text-xs text-gray-600">{event.startTime && event.endTime ? 
+                  `${formatTime(event.startTime)} - ${formatTime(event.endTime)}` : 
+                  "All day"}</p>
+                <p className="text-xs text-gray-600">• {event.description || "No description"}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
   
   // Modified Analytics Cards Section
@@ -340,24 +558,27 @@ const AdminDashboard = () => {
     );
     
     // Generate calendar days
+    let dayCounter = 0;
     while (day <= endDate) {
       for (let i = 0; i < 7; i++) {
-        const cloneDay = day;
+        const cloneDay = new Date(day);
+        const dayFormatted = format(cloneDay, "d");
         days.push(
           <div
-            key={day.toString()}
+            key={`day-${dayCounter}`}
             className={`w-8 h-8 flex items-center justify-center text-xs rounded-full
-              ${!isSameMonth(day, monthStart) ? "text-gray-300" : "text-gray-700"}
-              ${isSameDay(day, currentDate) ? "bg-blue-600 text-white" : ""}`}
+              ${!isSameMonth(cloneDay, monthStart) ? "text-gray-300" : "text-gray-700"}
+              ${isSameDay(cloneDay, currentDate) ? "bg-blue-600 text-white" : ""}`}
           >
-            {format(day, "d")}
+            {dayFormatted}
           </div>
         );
         day = addDays(day, 1);
+        dayCounter++;
       }
       
       rows.push(
-        <div key={day.toString()} className="grid grid-cols-7 gap-1">
+        <div key={`row-${dayCounter}`} className="grid grid-cols-7 gap-1">
           {days}
         </div>
       );
@@ -410,295 +631,172 @@ const AdminDashboard = () => {
               )}  
               <div className={`absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 transition ${isDropdownOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                 <a href="#" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  My Profile
-                </a>
-                <a href="#" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Settings
-                </a>
-                <div className="border-t border-gray-100 my-1"></div>
-                <button
-                  onClick={handleLogout}
-                  className="block w-full text-left px-4 py-2 text-red-600 hover:bg-gray-50 flex items-center"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7" />
-                  </svg>
-                  Logout
-                </button>
-              </div> 
-            </div>
-          </div>
-        </div>
-      </header>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+</svg>
+Profile
+</a>
+<a href="#" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+  Settings
+</a>
+<hr className="my-1 border-gray-100" />
+<a href="#" onClick={handleLogout} className="block px-4 py-2 text-red-600 hover:bg-gray-50 flex items-center">
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+  </svg>
+  Logout
+</a>
+</div>
+</div>
+</div>
+</div>
+</header>
 
-      <div className="flex-grow container mx-auto px-4 sm:px-6 py-6">
-        {currentFeature ? (
-          <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden">
-            <div className="flex items-center p-6 bg-gray-50 border-b border-gray-100">
-              <button
-                onClick={() => setCurrentFeature(null)}
-                className="mr-4 p-2 bg-white text-gray-600 rounded hover:bg-gray-100 transition border border-gray-200"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
-              <h2 className="text-xl font-bold text-gray-800">
-                {features.find(f => f.key === currentFeature)?.label}
-              </h2>
-            </div>
-            <div className="p-6">
-              {/* Display error message if there is one */}
-              {renderErrorMessage()}
-              {/* Display analytics cards */}
-              {renderAnalyticsCards()}
-              {/* Render feature content */}
-              {renderFeatureContent()}
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Welcome Section */}
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">{greeting}, {username}</h2>
-              <p className="text-gray-600">Here's your management overview for today.</p>
-            </div>
-            
-            {/* Display error message if there is one */}
-            {renderErrorMessage()}
-            
-            {/* Analytics Cards */}
-            {renderAnalyticsCards()}
-            
-            {/* Features Grid */}
-            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-              </svg>
-              Management Modules
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-              {features.map((feature) => (
-                <button
-                  key={feature.key}
-                  onClick={() => setCurrentFeature(feature.key)}
-                  className="bg-white rounded-lg shadow border border-gray-100 hover:border-blue-200 transition-all duration-300 hover:shadow-md flex flex-col items-center justify-center p-5 h-36"
-                >
-                  <div className="bg-gray-50 p-3 rounded-full mb-3 border border-gray-100">
-                    <img src={feature.image} alt={feature.label} className="w-8 h-8" />
-                  </div>
-                  <span className="text-gray-800 font-medium text-center text-sm">{feature.label}</span>
-                </button>
-              ))}
-            </div>
-            
-            {/* Calendar and Tasks Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Calendar Column */}
-              <div className="lg:col-span-1">
-                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  Calendar
-                </h3>
-                {renderSimpleCalendar()}
-                
-                <div className="mt-6 bg-white rounded-lg shadow border border-gray-100 p-5">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-base font-bold text-gray-800">Upcoming Events</h3>
-                    <button 
-                      onClick={() => setCurrentFeature("calendarPlanning")}
-                      className="text-sm text-blue-600 font-medium hover:text-blue-800 transition"
-                    >
-                      View All
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-start p-3 bg-blue-50 rounded border border-blue-100">
-                      <div className="mr-3 bg-white p-2 rounded-lg border border-blue-200 text-blue-800 text-center">
-                        <div className="text-xs font-bold">APR</div>
-                        <div className="text-lg font-bold">12</div>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-semibold">Monthly Staff Meeting</h4>
-                        <p className="text-xs text-gray-600">9:00 AM - 10:30 AM • Conference Room</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start p-3 bg-green-50 rounded border border-green-100">
-                      <div className="mr-3 bg-white p-2 rounded-lg border border-green-200 text-green-800 text-center">
-                        <div className="text-xs font-bold">APR</div>
-                        <div className="text-lg font-bold">15</div>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-semibold">Project Deadline: Website Redesign</h4>
-                        <p className="text-xs text-gray-600">All Day • Marketing Team</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Tasks Column */}
-              <div className="lg:col-span-2">
-                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  Priority Tasks
-                </h3>
-                <div className="bg-white rounded-lg shadow border border-gray-100 overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Task
-                        </th>
-                        <th scope="col" className="hidden sm:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Priority
-                        </th>
-                        <th scope="col" className="hidden sm:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Deadline
-                        </th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Assigned To
-                        </th>
-                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {tasks.map((task, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{task.title}</div>
-                          </td>
-                          <td className="hidden sm:table-cell px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                              ${task.priority === 'high' ? 'bg-red-100 text-red-800' : ''}
-                              ${task.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' : ''}
-                              ${task.priority === 'low' ? 'bg-green-100 text-green-800' : ''}
-                            `}>
-                              {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                            </span>
-                          </td>
-                          <td className="hidden sm:table-cell px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{task.deadline}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="flex-shrink-0 h-8 w-8 rounded-full bg-green-600 flex items-center justify-center text-white font-medium">
-                                {task.assigned.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="ml-3">
-                                <div className="text-sm font-medium text-gray-900">{task.assigned}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <button className="text-blue-600 hover:text-blue-900 mr-3">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                            </button>
-                            <button className="text-red-600 hover:text-red-900">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
-                    <button 
-                      onClick={() => setCurrentFeature("taskManagement")}
-                      className="flex items-center text-sm text-blue-600 font-medium hover:text-blue-800 transition"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      Add New Task
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Recent Activity */}
-                <h3 className="text-lg font-bold text-gray-800 mb-4 mt-6 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Recent Activity
-                </h3>
-                <div className="bg-white rounded-lg shadow border border-gray-100 p-5">
-                  <div className="space-y-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-medium">
-                          A
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm text-gray-800">
-                          <span className="font-medium">Arsha</span> completed task <span className="font-medium">Update Employee Handbook</span>
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">30 minutes ago</p>
-                      </div>
-                    </div>
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <div className="h-8 w-8 rounded-full bg-purple-600 flex items-center justify-center text-white font-medium">
-                          P
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm text-gray-800">
-                          <span className="font-medium">Pam</span> added a new employee <span className="font-medium">John Davidson</span>
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">2 hours ago</p>
-                      </div>
-                    </div>
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <div className="h-8 w-8 rounded-full bg-green-600 flex items-center justify-center text-white font-medium">
-                          S
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm text-gray-800">
-                          <span className="font-medium">Saniya</span> assigned <span className="font-medium">Review Q1 Financial Reports</span> to <span className="font-medium">Arsha</span>
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">Yesterday at 2:35 PM</p>
-                      </div>
-                    </div>
-                  </div>
-                  <button className="w-full mt-4 py-2 bg-gray-50 text-sm text-gray-600 rounded border border-gray-100 hover:bg-gray-100">
-                    View All Activity
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Footer */}
-      <footer className="bg-gray-50 border-t border-gray-100 py-4">
-        <div className="container mx-auto px-6 text-center text-sm text-gray-500">
-          <p>&copy; 2025 OfficeCorner. All rights reserved.</p>
-        </div>
-      </footer>
+{/* Main Content */}
+{currentFeature ? (
+  renderFeatureContent()
+) : (
+  <div className="container mx-auto px-6 py-8">
+    <div className="mb-6">
+      <h2 className="text-2xl font-bold text-gray-800">{greeting}, {username || "Admin"}!</h2>
+      <p className="text-gray-600">Here's what's happening in your workplace today.</p>
     </div>
-  );
-}
+    
+    {renderErrorMessage()}
+    
+    {/* Analytics Cards */}
+    {renderAnalyticsCards()}
+    
+    {/* Main Dashboard Grid */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Left Column - Features */}
+      <div className="lg:col-span-8 space-y-6">
+        {/* Features Grid */}
+        <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
+          <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Access</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {features.map((feature) => (
+              <div
+                key={feature.key}
+                className="bg-white border border-gray-200 rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow flex flex-col items-center text-center"
+                onClick={() => setCurrentFeature(feature.key)}
+              >
+                <img src={feature.image} alt={feature.label} className="w-12 h-12 mb-2" />
+                <span className="text-sm font-medium text-gray-700">{feature.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Priority Tasks */}
+        <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-gray-800">Priority Tasks</h3>
+            <button 
+              onClick={() => setCurrentFeature("taskManagement")} 
+              className="text-blue-600 text-sm font-medium hover:text-blue-800 transition"
+            >
+              View All Tasks
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead>
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {tasks.map((task, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="text-sm font-medium text-gray-900">{task.title}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-gray-500">{task.assigned}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        task.priority === "high" 
+                          ? "bg-red-100 text-red-800" 
+                          : task.priority === "medium"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-green-100 text-green-800"
+                      }`}>
+                        {task.priority}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm text-gray-500">{task.deadline}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      {/* Right Column - Calendar & Events */}
+      <div className="lg:col-span-4 space-y-6">
+        {/* Mini Calendar */}
+        {renderSimpleCalendar()}
+        
+        {/* Upcoming Events */}
+        <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-gray-800">Upcoming Events</h3>
+            <button 
+              onClick={() => setCurrentFeature("calendarPlanning")}
+              className="text-blue-600 text-sm font-medium hover:text-blue-800 transition"
+            >
+              View All Events
+            </button>
+          </div>
+          {renderUpcomingEvents()}
+        </div>
+      </div>
+    </div>
+    
+    {/* Refresh Data Button */}
+    <div className="mt-6 flex justify-center">
+      <button 
+        onClick={refreshDashboardData}
+        className="flex items-center text-blue-600 bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Refresh Dashboard Data
+      </button>
+    </div>
+  </div>
+)}
+
+{/* Footer */}
+<footer className="mt-auto bg-white border-t border-gray-200 py-4">
+  <div className="container mx-auto px-6">
+    <div className="flex flex-col md:flex-row justify-between items-center">
+      <div className="text-sm text-gray-600 mb-2 md:mb-0">
+        © 2025 OfficeCorner. All rights reserved.
+      </div>
+      <div className="flex space-x-4">
+        <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Privacy Policy</a>
+        <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Terms of Service</a>
+        <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Help Center</a>
+      </div>
+    </div>
+  </div>
+</footer>
+</div>
+);
+};
 
 export default AdminDashboard;

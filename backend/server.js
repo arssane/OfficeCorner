@@ -41,7 +41,7 @@ app.use('/api/employee', employeeRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/events', eventRoutes);  // Use event routes
+app.use('/api/events', eventRoutes);
 
 // Test event-related endpoint
 app.get('/api/test/events', async (req, res) => {
