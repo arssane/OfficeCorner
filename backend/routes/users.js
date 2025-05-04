@@ -4,7 +4,8 @@ import {
   getAllUsers, 
   getUserById, 
   updateUser, 
-  deleteUser 
+  deleteUser,
+  getCurrentUsername 
 } from '../controllers/userController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -12,6 +13,8 @@ const router = express.Router();
 
 // All routes below this are protected
 router.use(protect);
+
+router.get('/current/username', getCurrentUsername);
 
 // Routes for all authenticated users
 router.route('/:id')

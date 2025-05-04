@@ -36,6 +36,16 @@ export const getUserById = async (req, res, next) => {
   }
 };
 
+export const getCurrentUsername = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('username');
+    res.json({ username: user.username });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
 // Update user
 export const updateUser = async (req, res, next) => {
   try {

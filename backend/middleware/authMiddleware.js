@@ -1,6 +1,7 @@
 // middleware/authMiddleware.js - Authentication middleware
 import jwt from 'jsonwebtoken';
 import User from '../entities/User.js';
+import Employee from '../entities/Employee.js';
 
 export const protect = async (req, res, next) => {
   let token;
@@ -15,10 +16,15 @@ export const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       // Get user from token and exclude password
-      req.user = await User.findById(decoded.id).select('-password');
+      req.user = await Employee.findById(decoded.id).select('-password');
 
       if (!req.user) {
-        return res.status(401).json({ message: 'Not authorized, user not found' });
+        // Try to find in User model if not found in Employee
+        req.user = await User.findById(decoded.id).select('-password');
+        
+        if (!req.user) {
+          return res.status(401).json({ message: 'Not authorized, user not found' });
+        }
       }
 
       next();
@@ -30,6 +36,12 @@ export const protect = async (req, res, next) => {
   if (!token) {
     res.status(401).json({ message: 'Not authorized, no token provided' });
   }
+};
+
+export const generateToken = (id, role) => {
+  return jwt.sign({ id, role }, process.env.JWT_SECRET, {
+    expiresIn: '30d'
+  });
 };
 
 // Role-based access control middleware
@@ -47,4 +59,10 @@ export const authorize = (...roles) => {
     
     next();
   };
+};
+
+export default{
+  protect,
+  generateToken,
+  authorize
 };
