@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
+import useNotifications from '../hooks/useNotification';
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const { reconnectSocket } = useNotifications();
+  
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -17,9 +20,7 @@ const LoginPage = () => {
 
   // Load the Google API script
   useEffect(() => {
-    // Load the Google API script dynamically
     const loadGoogleScript = () => {
-      // Check if script is already loaded
       if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
         return;
       }
@@ -35,26 +36,22 @@ const LoginPage = () => {
 
     loadGoogleScript();
     
-    // Cleanup function to handle component unmounting
     return () => {
-      // Clean up Google Sign-In
       if (window.google && window.google.accounts) {
         window.google.accounts.id.cancel();
       }
     };
   }, []);
 
-  // Initialize Google Sign-In
   const initializeGoogleSignIn = () => {
     if (window.google && window.google.accounts) {
       window.google.accounts.id.initialize({
-        client_id: '208707733113-2s3kivojij1t7sotgj3bsu38sf62ofhf.apps.googleusercontent.com', // Using hardcoded value instead of env variable
+        client_id: '208707733113-2s3kivojij1t7sotgj3bsu38sf62ofhf.apps.googleusercontent.com',
         callback: handleGoogleResponse,
         auto_select: false,
         cancel_on_tap_outside: true
       });
       
-      // Render the Google Sign-In button
       window.google.accounts.id.renderButton(
         document.getElementById('google-signin-button'),
         { 
@@ -73,7 +70,6 @@ const LoginPage = () => {
       [e.target.name]: e.target.value
     });
     
-    // Also update roleForGoogle if role selector is shown
     if (e.target.name === 'role' && showRoleSelector) {
       setRoleForGoogle(e.target.value);
     }
@@ -84,7 +80,6 @@ const LoginPage = () => {
     setError('');
     setIsLoading(true);
     
-    // Validate form inputs
     if (!formData.email || !formData.password || !formData.role) {
       setError('Please complete all required fields');
       setIsLoading(false);
@@ -92,14 +87,9 @@ const LoginPage = () => {
     }
     
     try {
-      // Determine which endpoint to use based on the selected role
-      const endpoint = formData.role === 'Employee' 
-        ? 'http://localhost:5000/api/employee/login' 
-        : 'http://localhost:5000/api/auth/login';
-        
+      const endpoint = 'http://localhost:5000/api/auth/login';
       const response = await axios.post(endpoint, formData);
       
-      // Store token in localStorage
       localStorage.setItem('token', response.data.token);
 
       const userData = response.data.user;
@@ -109,47 +99,125 @@ const LoginPage = () => {
       localStorage.setItem('employeeDepartment', userData.department || 'General');
       localStorage.setItem('employeePosition', userData.position || 'Staff');
       
-      // Store user info in localStorage for quick access
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
+      console.log('User logged in:', response.data.user);
+
+      setTimeout(() => {
+        if (reconnectSocket) {
+          reconnectSocket();
+        }
+      }, 1000);
+
       if (response.data.user.role === "Administrator") {
         navigate('/admin');
-      }
-      else if (response.data.user.role === 'Employee'){
-        navigate('/employee');
-      }
-      else {
+      } else if (response.data.user.role === 'Employee') {
+        if (response.data.user.status === 'pending') {
+          navigate('/employee-pending');
+        } else if (response.data.user.status === 'approved') {
+          navigate('/employee');
+        } else if (response.data.user.status === 'rejected') {
+          navigate('/employee-pending');
+        } else {
+          navigate('/employee-pending');
+        }
+      } else {
         navigate('/dashboard');
       }
     } catch (err) {
-      console.error('Login error:', err);
-      setError(
-        err.response?.data?.message || 
-        'Authentication failed. Please verify your credentials and try again.'
-      );
+      if (err.response?.status === 403) {
+        const errorMessage = err.response.data.message || '';
+        
+        if (errorMessage.includes('pending approval') || 
+            errorMessage.includes('pending') || 
+            err.response.data.redirect === '/employee-pending') {
+          
+          // CRITICAL FIX: Try to get real user data from server for pending users
+          try {
+            // Make a request to get the actual user data for pending users
+            const userLookupResponse = await axios.post('http://localhost:5000/api/auth/lookup-user', {
+              email: formData.email,
+              role: formData.role
+            }, {
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (userLookupResponse.data.user) {
+              // Use the real user data from server
+              const pendingUser = userLookupResponse.data.user;
+              console.log('Found pending user data from server:', pendingUser);
+              localStorage.setItem('user', JSON.stringify(pendingUser));
+            } else {
+              throw new Error('User not found');
+            }
+          } catch (lookupError) {
+            console.warn('Could not lookup user data, using fallback:', lookupError);
+            // Fallback: Create user object with meaningful data but flag it as temporary
+            const pendingUser = {
+              id: 'temp-id-' + Date.now(),
+              _id: 'temp-id-' + Date.now(),
+              username: formData.email.split('@')[0],
+              name: formData.email.split('@')[0],
+              email: formData.email,
+              role: formData.role,
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              isTemporary: true // Flag to indicate this needs to be refreshed
+            };
+            localStorage.setItem('user', JSON.stringify(pendingUser));
+          }
+          
+          setTimeout(() => {
+            if (reconnectSocket) {
+              reconnectSocket();
+            }
+          }, 1000);
+          
+          setError(errorMessage);
+          
+          setTimeout(() => {
+            navigate('/employee-pending');
+          }, 1000);
+        } else if (err.response.data.redirect) {
+          setError(errorMessage);
+          setTimeout(() => {
+            navigate(err.response.data.redirect);
+          }, 3000);
+        } else {
+          setError(errorMessage || 'Access forbidden. Please check your credentials.');
+        }
+      } else {
+        console.error('Login error:', err);
+        setError(
+          err.response?.data?.message || 
+          'Authentication failed. Please verify your credentials and try again.'
+        );
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle Google Sign-In response
   const handleGoogleResponse = async (response) => {
     if (!response.credential) {
       setError('Google Sign-In failed. Please try again.');
       return;
     }
     
-    // Store the Google token
     setGoogleToken(response.credential);
-    
-    // Show role selector for Google Sign-In
     setShowRoleSelector(true);
   };
 
-  // Complete Google Sign-In with selected role
   const handleGoogleSignInWithRole = async () => {
     if (!googleToken || !roleForGoogle) {
       setError('Please select a role to continue');
+      return;
+    }
+    
+    if (roleForGoogle === 'Administrator') {
+      setError('Administrator accounts cannot be accessed through Google Sign-in. Please use the regular login form.');
       return;
     }
     
@@ -166,34 +234,85 @@ const LoginPage = () => {
         role: roleForGoogle
       });
       
-      // Store token in localStorage
       localStorage.setItem('token', response.data.token);
-      
-      // Store user info in localStorage for quick access
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
-      // Redirect based on user role
+      console.log('Google user logged in:', response.data.user);
+
+      setTimeout(() => {
+        if (reconnectSocket) {
+          reconnectSocket();
+        }
+      }, 1000);
+      
       if (response.data.user.role === "Administrator") {
         navigate('/admin');
       }
       else if (response.data.user.role === 'Employee'){
-        navigate('/employee');
+        if (response.data.user.status === 'pending') {
+          navigate('/employee-pending');
+        } else if (response.data.user.status === 'approved') {
+          navigate('/employee');
+        } else {
+          navigate('/employee-pending');
+        }
       }
       else {
         navigate('/dashboard');
       }
     } catch (err) {
-      console.error('Google Sign-In error:', err);
-      setError(
-        err.response?.data?.message || 
-        'Google authentication failed. Please try again.'
-      );
+      if (err.response?.status === 403 && err.response?.data?.message?.includes('pending')) {
+        // Try to get real user data for Google sign-in pending users too
+        try {
+          const userLookupResponse = await axios.post('http://localhost:5000/api/auth/google-lookup', {
+            token: googleToken,
+            role: roleForGoogle
+          });
+
+          if (userLookupResponse.data.user) {
+            const pendingUser = userLookupResponse.data.user;
+            localStorage.setItem('user', JSON.stringify(pendingUser));
+          } else {
+            throw new Error('Google user not found');
+          }
+        } catch (lookupError) {
+          console.warn('Could not lookup Google user data:', lookupError);
+          const pendingUser = {
+            id: 'temp-google-' + Date.now(),
+            _id: 'temp-google-' + Date.now(),
+            username: 'google-user-' + Date.now(),
+            name: 'Google User',
+            email: '',
+            role: roleForGoogle,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            isTemporary: true
+          };
+          localStorage.setItem('user', JSON.stringify(pendingUser));
+        }
+        
+        setTimeout(() => {
+          if (reconnectSocket) {
+            reconnectSocket();
+          }
+        }, 1000);
+        
+        setError(err.response.data.message);
+        setTimeout(() => {
+          navigate('/employee-pending');
+        }, 1000);
+      } else {
+        console.error('Google Sign-In error:', err);
+        setError(
+          err.response?.data?.message || 
+          'Google authentication failed. Please try again.'
+        );
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Show role selector for Google Sign-In
   if (showRoleSelector) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -234,8 +353,8 @@ const LoginPage = () => {
                 required
               >
                 <option value="">Select your role</option>
-                <option value="Administrator">Administrator</option>
                 <option value="Employee">Employee</option>
+                <option value="User">User</option>
               </select>
             </div>
 
@@ -271,12 +390,12 @@ const LoginPage = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-md">
-      <button
-        onClick={() => navigate(-1)} // This goes to the previous page
-        className="bg-gray-300 text-gray-800 px-4 py-2 rounded-full hover:bg-gray-400 transition duration-300 mb-4"
-      >
-        ← Back
-      </button>
+        <button
+          onClick={() => navigate(-1)}
+          className="bg-gray-300 text-gray-800 px-4 py-2 rounded-full hover:bg-gray-400 transition duration-300 mb-4"
+        >
+          ← Back
+        </button>
 
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Sign in to your account</h2>
@@ -303,90 +422,57 @@ const LoginPage = () => {
           </div>
         )}
 
-        {/* Google Sign-In Button */}
-        <div className="mt-6">
-          <div id="google-signin-button" className="w-full"></div>
-        </div>
-
-        <div className="mt-6 relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Or continue with</span>
-          </div>
-        </div>
-
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
+          <div className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
+                Role
+              </label>
+              <select
+                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm rounded-md"
+                id="role"
+                name="role"
+                value={formData.role}
+                onChange={handleChange}
+                required
+              >
+                <option value="">Select your role</option>
+                <option value="Administrator">Administrator</option>
+                <option value="Employee">Employee</option>
+                <option value="User">User</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email address
               </label>
               <input
                 id="email"
                 name="email"
                 type="email"
-                autoComplete="email"
                 required
-                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm mb-4"
-                placeholder="Email address"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                placeholder="Enter your email"
                 value={formData.email}
                 onChange={handleChange}
               />
             </div>
+
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Password
               </label>
               <input
                 id="password"
-                name="password"
+                name="password" 
                 type="password"
-                autoComplete="current-password"
                 required
-                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm mb-4"
-                placeholder="Password"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                placeholder="Enter your password"
                 value={formData.password}
                 onChange={handleChange}
               />
-            </div>
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
-                Role
-              </label>
-              <select
-                id="role"
-                name="role"
-                required
-                className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
-                value={formData.role}
-                onChange={handleChange}
-              >
-                <option value="">Select your role</option>
-                <option value="Administrator">Administrator</option>
-                <option value="Employee">Employee</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <input
-                id="remember-me"
-                name="remember-me"
-                type="checkbox"
-                className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
-              />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
-                Remember me
-              </label>
-            </div>
-
-            <div className="text-sm">
-              <a href="#" className="font-medium text-green-600 hover:text-green-500">
-                Forgot your password?
-              </a>
             </div>
           </div>
 
@@ -394,10 +480,10 @@ const LoginPage = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -407,7 +493,31 @@ const LoginPage = () => {
               ) : 'Sign in'}
             </button>
           </div>
+
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">Or continue with</span>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <div id="google-signin-button" className="w-full"></div>
+            </div>
+          </div>
         </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600">
+            Don't have an account?{' '}
+            <Link to="/signup" className="font-medium text-green-600 hover:text-green-500">
+              Sign up here
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

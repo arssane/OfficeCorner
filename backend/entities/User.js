@@ -1,4 +1,4 @@
-// entities/User.js - User model definition
+// entities/User.js - Updated User model with rejection fields
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -25,12 +25,55 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['Administrator', 'Employee'],
+    enum: ['Administrator', 'Employee', 'User'],
     required: [true, 'Role is required']
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: function() {
+      // Only Employee role needs approval, others are auto-approved
+      return this.role === 'Employee' ? 'pending' : 'approved';
+    }
+  },
+  name: {
+    type: String,
+    required: false // Optional field for additional user info
+  },
+  phone: {
+    type: String,
+    required: false
+  },
+  address: {
+    type: String,
+    required: false
   },
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  approvedAt: {
+    type: Date,
+    required: false
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false
+  },
+  // New rejection-related fields
+  rejectedAt: {
+    type: Date,
+    required: false
+  },
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false
+  },
+  rejectionReason: {
+    type: String,
+    required: false
   }
 });
 

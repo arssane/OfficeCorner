@@ -49,6 +49,12 @@ const SignupPage = () => {
       return false;
     }
 
+    // Prevent Administrator role selection
+    if (formData.role === 'Administrator') {
+      setError('Administrator accounts cannot be created through registration. Please contact your system administrator.');
+      return false;
+    }
+
     return true;
   };
 
@@ -64,28 +70,78 @@ const SignupPage = () => {
     
     try {
       const { confirmPassword, ...dataToSend } = formData;
+      
+      console.log('Sending registration data:', dataToSend);
+
       let response;
       
-      // Send to appropriate endpoint based on role
+      // Use the same endpoint for all registrations
+      response = await axios.post('http://localhost:5000/api/auth/register', dataToSend);
+      
+      console.log('Registration response:', response.data);
+      
+      // Handle Employee role with pending approval
       if (formData.role === 'Employee') {
-        response = await axios.post('http://localhost:5000/api/employee/register', dataToSend);
+        console.log('Employee registration detected');
+        
+        // Check if response indicates approval is required
+        if (response.data.requiresApproval || response.data.message?.includes('pending') || response.data.user?.status === 'pending') {
+          console.log('Employee needs approval, redirecting to pending page');
+          
+          // Create user object for pending page with current timestamp
+          const pendingUser = {
+            id: response.data.user?.id || response.data.user?._id || 'temp-id-' + Date.now(),
+            _id: response.data.user?.id || response.data.user?._id || 'temp-id-' + Date.now(),
+            username: formData.username,
+            name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            address: formData.address,
+            role: formData.role,
+            status: 'pending',
+            createdAt: new Date().toISOString()
+          };
+          
+          console.log('Storing pending user data:', pendingUser);
+          
+          // Store user data for the pending page
+          localStorage.setItem('user', JSON.stringify(pendingUser));
+          
+          // Also store token if provided
+          if (response.data.token) {
+            localStorage.setItem('token', response.data.token);
+          }
+          
+          console.log('Navigating to employee-pending page');
+          
+          // Show success message and redirect to pending page
+          setError(''); // Clear any existing errors
+          navigate('/employee-pending');
+          return;
+        } else {
+          console.log('Employee approved immediately');
+          // Handle approved employee case
+          localStorage.setItem('token', response.data.token);
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+          navigate('/employee');
+        }
       } else {
-        response = await axios.post('http://localhost:5000/api/auth/register', dataToSend);
+        console.log('Non-employee registration, auto-approving');
+        // Auto-login for non-employee roles
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        
+        // Navigate based on role
+        if (response.data.user.role === "Administrator") {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
       }
       
-      localStorage.setItem('token', response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-      
-      // Navigate based on role
-      if (response.data.user.role === "Administrator") {
-        navigate('/admin');
-      } else if (response.data.user.role === 'Employee') {
-        navigate('/employee');
-      } else {
-        navigate('/dashboard');
-      }
     } catch (err) {
       console.error('Signup error:', err);
+      console.error('Error response:', err.response?.data);
       setError(err.response?.data?.message || 'Registration failed.');
     } finally {
       setIsLoading(false);
@@ -100,12 +156,12 @@ const SignupPage = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-md">
-      <button
-  onClick={() => navigate(-1)} // This goes to the previous page
-  className="bg-gray-300 text-gray-800 px-4 py-2 rounded-full hover:bg-gray-400 transition duration-300 mb-4"
->
-  ← Back
-</button>
+        <button
+          onClick={() => navigate(-1)}
+          className="bg-gray-300 text-gray-800 px-4 py-2 rounded-full hover:bg-gray-400 transition duration-300 mb-4"
+        >
+          ← Back
+        </button>
 
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Create your account</h2>
@@ -131,6 +187,22 @@ const SignupPage = () => {
             </div>
           </div>
         )}
+
+        {/* Employee Registration Notice */}
+        <div className="bg-blue-50 border-l-4 border-blue-500 text-blue-700 p-4 mb-6 rounded">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm">
+                <strong>Employee Registration:</strong> If you're registering as an Employee, your account will need administrator approval before you can access the employee dashboard.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Google Sign-Up Button */}
         <div className="mt-6">
@@ -160,8 +232,8 @@ const SignupPage = () => {
           </div>
         </div>
         
-        {/* <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-700">
                 Username <span className="text-red-500">*</span>
@@ -177,7 +249,7 @@ const SignupPage = () => {
                 onChange={handleInputChange}
               />
             </div>
-            
+
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700">
                 Full Name <span className="text-red-500">*</span>
@@ -193,7 +265,7 @@ const SignupPage = () => {
                 onChange={handleInputChange}
               />
             </div>
-            
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email <span className="text-red-500">*</span>
@@ -209,41 +281,26 @@ const SignupPage = () => {
                 onChange={handleInputChange}
               />
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                  Phone Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="phone"
-                  name="phone"
-                  type="text"
-                  required
-                  className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                  placeholder="Phone Number"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-                  Address <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="address"
-                  name="address"
-                  type="text"
-                  required
-                  className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                  placeholder="Address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                />
-              </div>
+
+            <div>
+              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
+                Role <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="role"
+                name="role"
+                required
+                className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                value={formData.role}
+                onChange={handleInputChange}
+              >
+                <option value="">Select Role</option>
+                <option value="Employee">Employee</option>
+                <option value="User">User</option>
+                {/* Administrator option removed to prevent selection */}
+              </select>
             </div>
-            
+
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Password <span className="text-red-500">*</span>
@@ -259,7 +316,7 @@ const SignupPage = () => {
                 onChange={handleInputChange}
               />
             </div>
-            
+
             <div>
               <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
                 Confirm Password <span className="text-red-500">*</span>
@@ -275,24 +332,37 @@ const SignupPage = () => {
                 onChange={handleInputChange}
               />
             </div>
-            
+
             <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-                Role <span className="text-red-500">*</span>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                Phone Number <span className="text-red-500">*</span>
               </label>
-              <select
-                id="role"
-                name="role"
+              <input
+                id="phone"
+                name="phone"
+                type="text"
                 required
                 className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                value={formData.role}
+                placeholder="Phone Number"
+                value={formData.phone}
                 onChange={handleInputChange}
-              >
-                <option value="">Select Role</option>
-                <option value="Administrator">Administrator</option>
-                <option value="Employee">Employee</option>
-                <option value="User">User</option>
-              </select>
+              />
+            </div>
+
+            <div>
+              <label htmlFor="address" className="block text-sm font-medium text-gray-700">
+                Address <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="address"
+                name="address"
+                type="text"
+                required
+                className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                placeholder="Address"
+                value={formData.address}
+                onChange={handleInputChange}
+              />
             </div>
           </div>
 
@@ -315,7 +385,7 @@ const SignupPage = () => {
               )}
             </button>
           </div>
-          
+
           <div className="text-sm text-center">
             <p className="text-gray-600">
               By signing up, you agree to our{' '}
@@ -328,175 +398,7 @@ const SignupPage = () => {
               </a>
             </p>
           </div>
-        </form> */}
-        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-  <div className="grid grid-cols-2 gap-4">
-    <div>
-      <label htmlFor="username" className="block text-sm font-medium text-gray-700">
-        Username <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="username"
-        name="username"
-        type="text"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Username"
-        value={formData.username}
-        onChange={handleInputChange}
-      />
-    </div>
-
-    <div>
-      <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-        Full Name <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="name"
-        name="name"
-        type="text"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Full Name"
-        value={formData.name}
-        onChange={handleInputChange}
-      />
-    </div>
-
-    <div>
-      <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-        Email <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="email"
-        name="email"
-        type="email"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Email address"
-        value={formData.email}
-        onChange={handleInputChange}
-      />
-    </div>
-
-    <div>
-      <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-        Role <span className="text-red-500">*</span>
-      </label>
-      <select
-        id="role"
-        name="role"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        value={formData.role}
-        onChange={handleInputChange}
-      >
-        <option value="">Select Role</option>
-        <option value="Administrator">Administrator</option>
-        <option value="Employee">Employee</option>
-        <option value="User">User</option>
-      </select>
-    </div>
-
-    <div>
-      <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-        Password <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Password"
-        value={formData.password}
-        onChange={handleInputChange}
-      />
-    </div>
-
-    <div>
-      <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-        Confirm Password <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="confirmPassword"
-        name="confirmPassword"
-        type="password"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Confirm Password"
-        value={formData.confirmPassword}
-        onChange={handleInputChange}
-      />
-    </div>
-
- 
-    <div>
-      <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-        Phone Number <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="phone"
-        name="phone"
-        type="text"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Phone Number"
-        value={formData.phone}
-        onChange={handleInputChange}
-      />
-    </div>
-
-    <div>
-      <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-        Address <span className="text-red-500">*</span>
-      </label>
-      <input
-        id="address"
-        name="address"
-        type="text"
-        required
-        className="mt-1 appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-        placeholder="Address"
-        value={formData.address}
-        onChange={handleInputChange}
-      />
-    </div>
-  </div>
-
-  <div>
-    <button
-      type="submit"
-      disabled={isLoading}
-      className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-    >
-      {isLoading ? (
-        <span className="flex items-center">
-          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          Processing...
-        </span>
-      ) : (
-        'Sign up'
-      )}
-    </button>
-  </div>
-
-  <div className="text-sm text-center">
-    <p className="text-gray-600">
-      By signing up, you agree to our{' '}
-      <a href="#" className="font-medium text-green-600 hover:text-green-500">
-        Terms of Service
-      </a>{' '}
-      and{' '}
-      <a href="#" className="font-medium text-green-600 hover:text-green-500">
-        Privacy Policy
-      </a>
-    </p>
-  </div>
-</form>
+        </form>
 
       </div>
     </div>

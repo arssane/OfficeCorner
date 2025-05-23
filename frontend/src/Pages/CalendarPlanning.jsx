@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 // Helper functions
 const formatDate = (year, month, day) => {
@@ -44,6 +45,7 @@ const Modal = ({ open, onClose, children }) => {
 };
 
 const CalendarPlanning = () => {
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [newEvent, setNewEvent] = useState({ 

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { MousePointerClick, Download } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const AdminAttendanceTracking = () => {
+  const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [allAttendanceData, setAllAttendanceData] = useState([]);
@@ -465,6 +467,12 @@ const AdminAttendanceTracking = () => {
 
   return (
     <div className="container mx-auto p-4">
+          <button
+        onClick={() => navigate(-1)} // This goes to the previous page
+        className="bg-gray-300 text-gray-800 px-4 py-2 rounded-full hover:bg-gray-400 transition duration-300 mb-4"
+      >
+        ← Back
+      </button>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Employee Attendance Tracking</h1>
       </div>

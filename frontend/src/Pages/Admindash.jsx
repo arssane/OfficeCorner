@@ -10,6 +10,7 @@ import EmployeeManagement from "./EmployeeManagement";
 import TaskManagement from "./TaskManagement";
 import CalendarPlanning from "./CalendarPlanning";
 import AdminAttendanceTracking from "./AttendanceTracking";
+import EmployeeApproval from "../Components/EmployeeApproval";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay } from "date-fns";
 import axios from 'axios';
 
@@ -45,6 +46,27 @@ const AdminDashboard = () => {
     tasksCompleted: 5,
     tasksInProgress: 8,
     upcomingLeaves: 2
+  };
+
+  const featureTitles = {
+    employeeManagement: "Employee Management",
+    employeeApproval: "Employee Approval", // Add this line
+    taskManagement: "Task Management", 
+    calendarPlanning: "Calendar Planning",
+    attendanceTracking: "Attendance Tracking",
+    payrollManagement: "Payroll Management",
+    chat: "Chat & Communication"
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return "";
+    
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    
+    return `${hour12}:${minutes} ${ampm}`;
   };
 
   const fetchEvents = async () => {
@@ -214,7 +236,11 @@ const AdminDashboard = () => {
     localStorage.removeItem('user');
     setIsLoggedIn(false);
     setUsername('');
-    window.location.href = '/'; // ✅ make sure this is your correct login route
+    window.location.href = '/';
+  };
+
+  const handleBackToDashboard = () => {
+    setCurrentFeature(null);
   };
   
   // useEffect to set greeting and check login status
@@ -501,13 +527,15 @@ const AdminDashboard = () => {
   const renderFeatureContent = () => {
     switch (currentFeature) {
       case "employeeManagement":
-        return <EmployeeManagement onBack={() => setCurrentFeature(null)} />;
+        return <EmployeeManagement onBack={handleBackToDashboard} />;
+      case "employeeApproval":
+        return <EmployeeApproval onBack={handleBackToDashboard} />; // Add this case
       case "taskManagement":
-        return <TaskManagement onBack={() => setCurrentFeature(null)} />;
+        return <TaskManagement onBack={handleBackToDashboard} />;
       case "calendarPlanning":
-        return <CalendarPlanning onBack={() => setCurrentFeature(null)} />;
+        return <CalendarPlanning onBack={handleBackToDashboard} />;
       case "attendanceTracking":
-        return <AdminAttendanceTracking onBack={() => setCurrentFeature(null)} />;
+        return <AdminAttendanceTracking onBack={handleBackToDashboard} />;
       case "payrollManagement":
         return <PayrollManagement />;
       case "chat":
@@ -519,6 +547,7 @@ const AdminDashboard = () => {
 
   const features = [
     { label: "Employee Management", key: "employeeManagement", image: recruitment },
+    { label: "Employee Approval", key: "employeeApproval", image: recruitment }, // Add this line
     { label: "Task Management", key: "taskManagement", image: task },
     { label: "Calendar Planning", key: "calendarPlanning", image: calendar },
     { label: "Attendance Tracking", key: "attendanceTracking", image: attendance },
@@ -603,13 +632,48 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Modern Header with Shadow & Gradient */}
+      {/* Enhanced Header with Back Button */}
       <header className="sticky top-0 z-10 bg-green-900 shadow-lg">
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center">
-            <h1 className="text-2xl text-white font-bold">OfficeCorner</h1>
-            <span className="ml-2 bg-green-700 text-xs text-blue-100 px-2 py-1 rounded-full">ADMIN</span>
+            {/* Back Button - Shows when viewing a feature */}
+            {currentFeature && (
+              <button
+                onClick={handleBackToDashboard}
+                className="flex items-center text-white hover:text-green-200 transition-colors mr-4 bg-green-800 bg-opacity-50 px-3 py-2 rounded-lg hover:bg-opacity-70"
+              >
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className="h-5 w-5 mr-2" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M10 19l-7-7m0 0l7-7m-7 7h18" 
+                  />
+                </svg>
+                <span className="text-sm font-medium">Back to Dashboard</span>
+              </button>
+            )}
+            
+            {/* Title Section */}
+            <div className="flex items-center">
+              <h1 className="text-2xl text-white font-bold">OfficeCorner</h1>
+              <span className="ml-2 bg-green-700 text-xs text-blue-100 px-2 py-1 rounded-full">ADMIN</span>
+              {/* Feature Title - Shows current section */}
+              {currentFeature && (
+                <div className="ml-4 flex items-center text-green-200">
+                  <span className="text-lg">•</span>
+                  <span className="ml-2 text-lg font-medium">{featureTitles[currentFeature]}</span>
+                </div>
+              )}
+            </div>
           </div>
+          
           <div className="flex items-center space-x-4">
             <div className="hidden md:flex items-center text-white text-sm mr-6">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -619,7 +683,7 @@ const AdminDashboard = () => {
             </div>
             <div tabIndex={0} className="relative group focus:outline-none"> 
               {isLoggedIn && (
-                <div  onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 bg-green-700 bg-opacity-50 text-white px-4 py-2 rounded-lg hover:bg-opacity-70 transition cursor-pointer">
+                <div onClick={() => setIsDropdownOpen(prev => !prev)} className="flex items-center space-x-2 bg-green-700 bg-opacity-50 text-white px-4 py-2 rounded-lg hover:bg-opacity-70 transition cursor-pointer">
                   <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center font-medium">
                     {username.charAt(0).toUpperCase()}
                   </div>
@@ -631,172 +695,172 @@ const AdminDashboard = () => {
               )}  
               <div className={`absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 transition ${isDropdownOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                 <a href="#" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-</svg>
-Profile
-</a>
-<a href="#" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-  Settings
-</a>
-<hr className="my-1 border-gray-100" />
-<a href="#" onClick={handleLogout} className="block px-4 py-2 text-red-600 hover:bg-gray-50 flex items-center">
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-  </svg>
-  Logout
-</a>
-</div>
-</div>
-</div>
-</div>
-</header>
-
-{/* Main Content */}
-{currentFeature ? (
-  renderFeatureContent()
-) : (
-  <div className="container mx-auto px-6 py-8">
-    <div className="mb-6">
-      <h2 className="text-2xl font-bold text-gray-800">{greeting}, {username || "Admin"}!</h2>
-      <p className="text-gray-600">Here's what's happening in your workplace today.</p>
-    </div>
-    
-    {renderErrorMessage()}
-    
-    {/* Analytics Cards */}
-    {renderAnalyticsCards()}
-    
-    {/* Main Dashboard Grid */}
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Left Column - Features */}
-      <div className="lg:col-span-8 space-y-6">
-        {/* Features Grid */}
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Access</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {features.map((feature) => (
-              <div
-                key={feature.key}
-                className="bg-white border border-gray-200 rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow flex flex-col items-center text-center"
-                onClick={() => setCurrentFeature(feature.key)}
-              >
-                <img src={feature.image} alt={feature.label} className="w-12 h-12 mb-2" />
-                <span className="text-sm font-medium text-gray-700">{feature.label}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Profile
+                </a>
+                <a href="#" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Settings
+                </a>
+                <hr className="my-1 border-gray-100" />
+                <a href="#" onClick={handleLogout} className="block px-4 py-2 text-red-600 hover:bg-gray-50 flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Logout
+                </a>
               </div>
-            ))}
+            </div>
           </div>
         </div>
+      </header>
 
-        {/* Priority Tasks */}
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">Priority Tasks</h3>
+      {/* Main Content */}
+      {currentFeature ? (
+        renderFeatureContent()
+      ) : (
+        <div className="container mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">{greeting}, {username || "Admin"}!</h2>
+            <p className="text-gray-600">Here's what's happening in your workplace today.</p>
+          </div>
+          
+          {renderErrorMessage()}
+          
+          {/* Analytics Cards */}
+          {renderAnalyticsCards()}
+          
+          {/* Main Dashboard Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column - Features */}
+            <div className="lg:col-span-8 space-y-6">
+              {/* Features Grid */}
+              <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Access</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {features.map((feature) => (
+                    <div
+                      key={feature.key}
+                      className="bg-white border border-gray-200 rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow flex flex-col items-center text-center"
+                      onClick={() => setCurrentFeature(feature.key)}
+                    >
+                      <img src={feature.image} alt={feature.label} className="w-12 h-12 mb-2" />
+                      <span className="text-sm font-medium text-gray-700">{feature.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Priority Tasks */}
+              <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-800">Priority Tasks</h3>
+                  <button 
+                    onClick={() => setCurrentFeature("taskManagement")} 
+                    className="text-blue-600 text-sm font-medium hover:text-blue-800 transition"
+                  >
+                    View All Tasks
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {tasks.map((task, index) => (
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <div className="text-sm font-medium text-gray-900">{task.title}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm text-gray-500">{task.assigned}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              task.priority === "high" 
+                                ? "bg-red-100 text-red-800" 
+                                : task.priority === "medium"
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-green-100 text-green-800"
+                            }`}>
+                              {task.priority}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm text-gray-500">{task.deadline}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            
+            {/* Right Column - Calendar & Events */}
+            <div className="lg:col-span-4 space-y-6">
+              {/* Mini Calendar */}
+              {renderSimpleCalendar()}
+              
+              {/* Upcoming Events */}
+              <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-800">Upcoming Events</h3>
+                  <button 
+                    onClick={() => setCurrentFeature("calendarPlanning")}
+                    className="text-blue-600 text-sm font-medium hover:text-blue-800 transition"
+                  >
+                    View All Events
+                  </button>
+                </div>
+                {renderUpcomingEvents()}
+              </div>
+            </div>
+          </div>
+          
+          {/* Refresh Data Button */}
+          <div className="mt-6 flex justify-center">
             <button 
-              onClick={() => setCurrentFeature("taskManagement")} 
-              className="text-blue-600 text-sm font-medium hover:text-blue-800 transition"
+              onClick={refreshDashboardData}
+              className="flex items-center text-blue-600 bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition"
             >
-              View All Tasks
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh Dashboard Data
             </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead>
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {tasks.map((task, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">{task.title}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm text-gray-500">{task.assigned}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        task.priority === "high" 
-                          ? "bg-red-100 text-red-800" 
-                          : task.priority === "medium"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-green-100 text-green-800"
-                      }`}>
-                        {task.priority}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm text-gray-500">{task.deadline}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
-      </div>
-      
-      {/* Right Column - Calendar & Events */}
-      <div className="lg:col-span-4 space-y-6">
-        {/* Mini Calendar */}
-        {renderSimpleCalendar()}
-        
-        {/* Upcoming Events */}
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">Upcoming Events</h3>
-            <button 
-              onClick={() => setCurrentFeature("calendarPlanning")}
-              className="text-blue-600 text-sm font-medium hover:text-blue-800 transition"
-            >
-              View All Events
-            </button>
-          </div>
-          {renderUpcomingEvents()}
-        </div>
-      </div>
-    </div>
-    
-    {/* Refresh Data Button */}
-    <div className="mt-6 flex justify-center">
-      <button 
-        onClick={refreshDashboardData}
-        className="flex items-center text-blue-600 bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-        Refresh Dashboard Data
-      </button>
-    </div>
-  </div>
-)}
+      )}
 
-{/* Footer */}
-<footer className="mt-auto bg-white border-t border-gray-200 py-4">
-  <div className="container mx-auto px-6">
-    <div className="flex flex-col md:flex-row justify-between items-center">
-      <div className="text-sm text-gray-600 mb-2 md:mb-0">
-        © 2025 OfficeCorner. All rights reserved.
-      </div>
-      <div className="flex space-x-4">
-        <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Privacy Policy</a>
-        <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Terms of Service</a>
-        <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Help Center</a>
-      </div>
+      {/* Footer */}
+      <footer className="mt-auto bg-white border-t border-gray-200 py-4">
+        <div className="container mx-auto px-6">
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <div className="text-sm text-gray-600 mb-2 md:mb-0">
+              © 2025 OfficeCorner. All rights reserved.
+            </div>
+            <div className="flex space-x-4">
+              <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Privacy Policy</a>
+              <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Terms of Service</a>
+              <a href="#" className="text-sm text-gray-600 hover:text-gray-900">Help Center</a>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
-  </div>
-</footer>
-</div>
-);
+  );
 };
 
 export default AdminDashboard;
