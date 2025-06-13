@@ -6,7 +6,8 @@ import {
   getEmployeeAttendance,
   getTodayAttendance,
   getAllAttendance,
-  updateAttendanceStatus
+  updateAttendanceStatus,
+  createManualAttendance
 } from '../controllers/attendanceController.js';
 
 const router = express.Router();
@@ -19,5 +20,8 @@ router.get('/today/:employeeId', protect, getTodayAttendance);
 // Admin routes
 router.get('/', protect, authorize('admin', 'manager'), getAllAttendance);
 router.put('/:id', protect, authorize('admin', 'manager'), updateAttendanceStatus);
+
+// NEW: Manual attendance entry route for admins
+router.post('/manual', protect, authorize('Administrator','admin', 'manager'), createManualAttendance);
 
 export default router;

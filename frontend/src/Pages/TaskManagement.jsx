@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaEdit, FaTrash, FaSync } from "react-icons/fa";
-import { Dialog } from "@headlessui/react";
-import axios from "axios";
+import { FaEdit, FaTrash, FaSync, FaPlus, FaClock, FaUser, FaFlag, FaCheck } from "react-icons/fa";
 
 const TaskManagement = () => {
   // Initialize state from localStorage if available
@@ -58,7 +56,6 @@ const TaskManagement = () => {
     localStorage.setItem('employees', JSON.stringify(employees));
   }, [employees]);
 
-  // Check authentication on mount
   useEffect(() => {
     // Set loading to false if we have cached tasks
     if (tasks.length > 0) {
@@ -66,6 +63,17 @@ const TaskManagement = () => {
     }
     
     checkAuthentication();
+    
+    // Set up periodic refresh every 30 seconds for admins
+    const refreshInterval = setInterval(() => {
+      const token = localStorage.getItem("token");
+      const userRole = localStorage.getItem("userRole");
+      if (token && userRole === 'Administrator') {
+        fetchTasks(token);
+      }
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(refreshInterval);
   }, []);
 
   // Check API endpoint and try options
@@ -91,7 +99,7 @@ const TaskManagement = () => {
         ];
         
         const employeeEndpoints = [
-          `${baseUrl}/employees`,
+          `${baseUrl}/auth/users`,
           `${baseUrl}/employee`,
           `${baseUrl}/api/employees`,
           `${baseUrl}/api/employee`
@@ -104,16 +112,16 @@ const TaskManagement = () => {
         for (const endpoint of taskEndpoints) {
           try {
             console.log(`Trying task endpoint: ${endpoint}`);
-            const response = await axios.get(endpoint, {
+            const response = await fetch(endpoint, {
               headers: { 
                 Authorization: `Bearer ${token}`,
                 'Accept': 'application/json'
               },
-              timeout: 5000
+              signal: AbortSignal.timeout(5000)
             });
             
-            if (response.status === 200) {
-              tasksData = response.data;
+            if (response.ok) {
+              tasksData = await response.json();
               workingTaskEndpoint = endpoint;
               console.log(`Found working task endpoint: ${endpoint}`);
               setCurrentApiBaseUrl(baseUrl);
@@ -132,16 +140,16 @@ const TaskManagement = () => {
           for (const endpoint of employeeEndpoints) {
             try {
               console.log(`Trying employee endpoint: ${endpoint}`);
-              const response = await axios.get(endpoint, {
+              const response = await fetch(endpoint, {
                 headers: { 
                   Authorization: `Bearer ${token}`,
                   'Accept': 'application/json'
                 },
-                timeout: 5000
+                signal: AbortSignal.timeout(5000)
               });
               
-              if (response.status === 200) {
-                employeesData = response.data;
+              if (response.ok) {
+                employeesData = await response.json();
                 workingEmployeeEndpoint = endpoint;
                 console.log(`Found working employee endpoint: ${endpoint}`);
                 break;
@@ -212,7 +220,7 @@ const TaskManagement = () => {
   // Get the employee endpoint
   const getEmployeeEndpoint = () => {
     const storedEndpoint = localStorage.getItem("employeeEndpoint");
-    return storedEndpoint || `${currentApiBaseUrl}/employee`;
+    return storedEndpoint || `${currentApiBaseUrl}/users`;
   };
 
   // Fetch tasks with token
@@ -220,24 +228,22 @@ const TaskManagement = () => {
     try {
       setLoading(true);
       
-      const response = await axios.get(getTaskEndpoint(), {
+      const response = await fetch(getTaskEndpoint(), {
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        validateStatus: function (status) {
-          return status < 500;
-        },
-        timeout: 10000
+        signal: AbortSignal.timeout(10000)
       });
       
-      if (response.status >= 200 && response.status < 300) {
-        const tasksData = Array.isArray(response.data) ? response.data : [];
+      if (response.ok) {
+        const tasksData = await response.json();
+        const taskArray = Array.isArray(tasksData) ? tasksData : [];
         
         // Only update tasks if we got data from the server
-        if (tasksData.length > 0) {
-          setTasks(tasksData);
+        if (taskArray.length > 0) {
+          setTasks(taskArray);
         }
         
         setError(null);
@@ -259,25 +265,23 @@ const TaskManagement = () => {
   // Fetch employees with token
   const fetchEmployees = async (token) => {
     try {
-      const response = await axios.get(getEmployeeEndpoint(), {
+      const response = await fetch(getEmployeeEndpoint(), {
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        validateStatus: function (status) {
-          return status < 500;
-        },
-        timeout: 10000
+        signal: AbortSignal.timeout(10000)
       });
       
-      if (response.status >= 200 && response.status < 300) {
-        const employeesData = Array.isArray(response.data) ? response.data : [];
+      if (response.ok) {
+        const employeesData = await response.json();
+        const employeeArray = Array.isArray(employeesData) ? employeesData : [];
         
         // Only update employees if we got data from the server
-        if (employeesData.length > 0) {
-          setEmployees(employeesData);
-          localStorage.setItem('employees', JSON.stringify(employeesData));
+        if (employeeArray.length > 0) {
+          setEmployees(employeeArray);
+          localStorage.setItem('employees', JSON.stringify(employeeArray));
         }
       }
     } catch (err) {
@@ -310,13 +314,15 @@ const TaskManagement = () => {
         return;
       }
       
-      const response = await axios.post(getTaskEndpoint(), newTask, {
+      const response = await fetch(getTaskEndpoint(), {
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        timeout: 10000
+        body: JSON.stringify(newTask),
+        signal: AbortSignal.timeout(10000)
       }).catch(err => {
         // If API fails, add task locally
         const newTaskWithId = {
@@ -327,8 +333,9 @@ const TaskManagement = () => {
         throw err;
       });
       
-      if (response && response.data) {
-        setTasks([...tasks, response.data]);
+      if (response && response.ok) {
+        const data = await response.json();
+        setTasks([...tasks, data]);
       }
       
       setIsAddOpen(false);
@@ -375,23 +382,26 @@ const TaskManagement = () => {
         (task.id === taskId || task._id === taskId) ? taskToEdit : task
       ));
       
-      const response = await axios.put(updateEndpoint, taskToEdit, {
+      const response = await fetch(updateEndpoint, {
+        method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        timeout: 10000
+        body: JSON.stringify(taskToEdit),
+        signal: AbortSignal.timeout(10000)
       }).catch(err => {
         // Allow the local update to proceed even if API fails
         console.log("API update failed, but task was updated locally:", err);
         return null;
       });
       
-      if (response && response.data) {
+      if (response && response.ok) {
         // Update with server response data if available
+        const data = await response.json();
         setTasks(tasks.map(task => 
-          (task.id === taskId || task._id === taskId) ? response.data : task
+          (task.id === taskId || task._id === taskId) ? data : task
         ));
       }
       
@@ -406,48 +416,49 @@ const TaskManagement = () => {
   const handleDeleteTask = async () => {
     try {
       const token = localStorage.getItem("token");
+      const userRole = localStorage.getItem("userRole"); // Make sure you store this on login
       
-      // Store deletion in localStorage
-      const deletedTasks = JSON.parse(localStorage.getItem('deletedTasks') || '[]');
-      deletedTasks.push(taskToDelete);
-      localStorage.setItem('deletedTasks', JSON.stringify(deletedTasks));
-      
-      // Update the lastTaskDeletion timestamp
-      const deletionTimestamp = new Date().toISOString();
-      localStorage.setItem('lastTaskDeletion', deletionTimestamp);
-      
-      // Delete locally
-      setTasks(tasks.filter(task => 
-        task.id !== taskToDelete && task._id !== taskToDelete
-      ));
-      
-      // Try server-side deletion if authenticated
       if (token) {
         try {
           const taskEndpoint = getTaskEndpoint();
-          console.log("Using delete endpoint:", `${taskEndpoint}/${taskToDelete}`);
+          // Use admin endpoint for admins, regular endpoint for others
+          const deleteUrl = userRole === 'Administrator' 
+            ? `${taskEndpoint}/admin/${taskToDelete}`
+            : `${taskEndpoint}/${taskToDelete}`;
           
-          await axios.delete(`${taskEndpoint}/${taskToDelete}`, {
+          console.log("DELETE URL:", deleteUrl);
+          
+          const response = await fetch(deleteUrl, {
+            method: 'DELETE',
             headers: {
               Authorization: `Bearer ${token}`,
               'Accept': 'application/json'
             },
-            timeout: 10000
+            signal: AbortSignal.timeout(10000)
           });
           
-          console.log("Task successfully deleted on server");
+          if (response.status === 204) {
+            // Only delete locally after successful server deletion
+            setTasks(tasks.filter(task => 
+              task.id !== taskToDelete && task._id !== taskToDelete
+            ));
+            
+            console.log("Task successfully deleted on server and locally");
+          }
+          
         } catch (apiErr) {
-          console.log("DELETE API error:", apiErr);
-          console.log("Task was removed locally but server deletion failed");
+          console.error("DELETE API error:", apiErr.message);
+          setError(`Failed to delete task: ${apiErr.message}`);
+          return; // Don't delete locally if server deletion failed
         }
       }
       
-      // Always close the dialog and clean up state
       setIsDeleteOpen(false);
       setTaskToDelete(null);
+      
     } catch (err) {
-      console.log("Delete operation error:", err);
-      setError(`Task deletion error: ${err.message}. Task was removed locally.`);
+      console.error("Delete operation error:", err);
+      setError(`Task deletion error: ${err.message}`);
       setIsDeleteOpen(false);
       setTaskToDelete(null);
     }
@@ -467,347 +478,447 @@ const TaskManagement = () => {
     return employee ? employee.name : "Unknown";
   };
 
-  if (loading && tasks.length === 0) return <div className="text-center p-6">Loading tasks...</div>;
+  if (loading && tasks.length === 0) return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+      <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-xl">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-slate-600 text-center">Loading tasks...</p>
+      </div>
+    </div>
+  );
   
   if (error && tasks.length === 0) return (
-    <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-xl font-semibold text-red-600 mb-4">Error</h2>
-      <p className="mb-4">{error}</p>
-      <div className="flex space-x-4">
-        <button 
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-          onClick={checkAuthentication}
-        >
-          Try Again
-        </button>
-        <button 
-          className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-          onClick={checkEndpoints}
-        >
-          Find Working API Endpoints
-        </button>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white/90 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-white/20">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-red-600 mb-2">Connection Error</h2>
+          <p className="text-slate-600 mb-6">{error}</p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button 
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:scale-105"
+            onClick={checkAuthentication}
+          >
+            Try Again
+          </button>
+          <button 
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:scale-105"
+            onClick={checkEndpoints}
+          >
+            Find API Endpoints
+          </button>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="max-w-7xl mx-auto p-6 bg-gray-100 min-h-screen">
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-gray-800">Task Management</h2>
-          {lastUpdated && (
-            <p className="text-sm text-gray-500">
-              Last updated: {new Date(lastUpdated).toLocaleString()}
-              {!isAuthenticated && " (cached)"}
-            </p>
-          )}
-        </div>
-        <div className="flex space-x-2">
-          {isAuthenticated && (
-            <button
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center"
-              onClick={() => {
-                const token = localStorage.getItem('token');
-                if (token) {
-                  fetchTasks(token);
-                }
-              }}
-            >
-              <FaSync className="mr-2" /> Refresh
-            </button>
-          )}
-          <button
-            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-            onClick={() => setIsAddOpen(true)}
-          >
-            + Add Task
-          </button>
-        </div>
-      </div>
-      
-      {error && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4 rounded">
-          <p>{error}</p>
-          {!isAuthenticated && (
-            <button 
-              className="mt-2 text-blue-600 hover:text-blue-800"
-              onClick={() => window.location.href = '/login'}
-            >
-              Login to sync with server
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="bg-white shadow-md rounded-lg overflow-hidden">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="bg-gray-200">
-              <th className="p-3">Title</th>
-              <th className="p-3">Description</th>
-              <th className="p-3">Assigned To</th>
-              <th className="p-3">Deadline</th>
-              <th className="p-3">Priority</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.length === 0 ? (
-              <tr>
-                <td colSpan="7" className="p-3 text-center text-gray-500">No tasks found</td>
-              </tr>
-            ) : (
-              tasks.map((task) => (
-                <tr key={task.id || task._id} className="border-t">
-                  <td className="p-3">{task.title}</td>
-                  <td className="p-3">{task.description}</td>
-                  <td className="p-3">{getEmployeeName(task.assignedTo)}</td>
-                  <td className="p-3">{formatDate(task.deadline)}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium
-                      ${task.priority === "high" ? "bg-red-100 text-red-800" : 
-                        task.priority === "medium" ? "bg-yellow-100 text-yellow-800" : 
-                        "bg-green-100 text-green-800"}`}>
-                      {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium
-                      ${task.status === "pending" ? "bg-gray-100 text-gray-800" : 
-                        task.status === "in-progress" ? "bg-blue-100 text-blue-800" : 
-                        "bg-green-100 text-green-800"}`}>
-                      {task.status.charAt(0).toUpperCase() + task.status.slice(1).replace('-', ' ')}
-                    </span>
-                  </td>
-                  <td className="p-3 flex space-x-3">
-                    <button 
-                      className="text-blue-500 hover:text-blue-700"
-                      onClick={() => {
-                        setTaskToEdit(task);
-                        setIsEditOpen(true);
-                      }}
-                    >
-                      <FaEdit size={18} />
-                    </button>
-                    <button
-                      className="text-red-500 hover:text-red-700"
-                      onClick={() => {
-                        setTaskToDelete(task.id || task._id);
-                        setIsDeleteOpen(true);
-                      }}
-                    >
-                      <FaTrash size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 bg-white/70 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/20">
+          <div className="mb-4 sm:mb-0">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+              Task Management
+            </h1>
+            {lastUpdated && (
+              <p className="text-sm text-slate-500 flex items-center mt-2">
+                <FaClock className="mr-2" />
+                Last updated: {new Date(lastUpdated).toLocaleString()}
+                {!isAuthenticated && (
+                  <span className="ml-2 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs">
+                    cached
+                  </span>
+                )}
+              </p>
             )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Add Task Modal */}
-      <Dialog open={isAddOpen} onClose={() => setIsAddOpen(false)} className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-        <div className="bg-white p-6 rounded-lg shadow-lg w-96">
-          <h2 className="text-xl font-semibold mb-4">Add New Task</h2>
-          
-          <input
-            type="text"
-            placeholder="Task Title"
-            className="w-full mb-2 p-2 border rounded"
-            value={newTask.title}
-            onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-          />
-          
-          <textarea
-            placeholder="Description"
-            className="w-full mb-2 p-2 border rounded"
-            value={newTask.description}
-            onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-          />
-          
-          <div className="mb-2">
-            <label className="block text-sm text-gray-600 mb-1">Deadline</label>
-            <input
-              type="date"
-              className="w-full p-2 border rounded"
-              value={newTask.deadline}
-              onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-            />
           </div>
-          
-          <div className="mb-2">
-            <label className="block text-sm text-gray-600 mb-1">Priority</label>
-            <select
-              className="w-full p-2 border rounded"
-              value={newTask.priority}
-              onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </div>
-          
-          <div className="mb-2">
-            <label className="block text-sm text-gray-600 mb-1">Assign To</label>
-            <select
-              className="w-full p-2 border rounded"
-              value={newTask.assignedTo}
-              onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
-            >
-              <option value="">Select Employee</option>
-              {employees.map(employee => (
-                <option key={employee._id || employee.id} value={employee._id || employee.id}>
-                  {employee.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="mb-2">
-            <label className="block text-sm text-gray-600 mb-1">Status</label>
-            <select
-              className="w-full p-2 border rounded"
-              value={newTask.status}
-              onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
-            >
-              <option value="pending">Pending</option>
-              <option value="in-progress">In Progress</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
-          
-          <div className="flex justify-between mt-4">
+          <div className="flex gap-3">
+            {isAuthenticated && (
+              <button
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:scale-105 flex items-center"
+                onClick={() => {
+                  const token = localStorage.getItem('token');
+                  if (token) {
+                    fetchTasks(token);
+                  }
+                }}
+              >
+                <FaSync className="mr-2" /> Refresh
+              </button>
+            )}
             <button
-              className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
-              onClick={() => setIsAddOpen(false)}
+              className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-2 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:scale-105 flex items-center"
+              onClick={() => setIsAddOpen(true)}
             >
-              Cancel
-            </button>
-            <button
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-              onClick={handleAddTask}
-            >
-              Add Task
+              <FaPlus className="mr-2" /> Add Task
             </button>
           </div>
         </div>
-      </Dialog>
-
-      {/* Edit Task Modal */}
-      <Dialog open={isEditOpen} onClose={() => setIsEditOpen(false)} className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-        {taskToEdit && (
-          <div className="bg-white p-6 rounded-lg shadow-lg w-96">
-            <h2 className="text-xl font-semibold mb-4">Edit Task</h2>
-            
-            <input
-              type="text"
-              placeholder="Task Title"
-              className="w-full mb-2 p-2 border rounded"
-              value={taskToEdit.title}
-              onChange={(e) => setTaskToEdit({ ...taskToEdit, title: e.target.value })}
-            />
-            
-            <textarea
-              placeholder="Description"
-              className="w-full mb-2 p-2 border rounded"
-              value={taskToEdit.description}
-              onChange={(e) => setTaskToEdit({ ...taskToEdit, description: e.target.value })}
-            />
-            
-            <div className="mb-2">
-              <label className="block text-sm text-gray-600 mb-1">Deadline</label>
-              <input
-                type="date"
-                className="w-full p-2 border rounded"
-                value={taskToEdit.deadline ? taskToEdit.deadline.split('T')[0] : ""}
-                onChange={(e) => setTaskToEdit({ ...taskToEdit, deadline: e.target.value })}
-              />
-            </div>
-            
-            <div className="mb-2">
-              <label className="block text-sm text-gray-600 mb-1">Priority</label>
-              <select
-                className="w-full p-2 border rounded"
-                value={taskToEdit.priority}
-                onChange={(e) => setTaskToEdit({ ...taskToEdit, priority: e.target.value })}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-            
-            <div className="mb-2">
-              <label className="block text-sm text-gray-600 mb-1">Assign To</label>
-              <select
-                className="w-full p-2 border rounded"
-                value={taskToEdit.assignedTo}
-                onChange={(e) => setTaskToEdit({ ...taskToEdit, assignedTo: e.target.value })}
-              >
-                <option value="">Select Employee</option>
-                {employees.map(employee => (
-                  <option key={employee._id || employee.id} value={employee._id || employee.id}>
-                    {employee.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="mb-2">
-              <label className="block text-sm text-gray-600 mb-1">Status</label>
-              <select
-                className="w-full p-2 border rounded"
-                value={taskToEdit.status}
-                onChange={(e) => setTaskToEdit({ ...taskToEdit, status: e.target.value })}
-              >
-                <option value="pending">Pending</option>
-                <option value="in-progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-            
-            <div className="flex justify-between mt-4">
-              <button
-                className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
-                onClick={() => setIsEditOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                onClick={handleEditTask}
-              >
-                Update Task
-              </button>
+        
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 bg-gradient-to-r from-amber-50 to-yellow-50 border-l-4 border-amber-400 rounded-xl p-4 shadow-sm">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3 flex-1">
+                <p className="text-amber-700 font-medium">{error}</p>
+                {!isAuthenticated && (
+                  <button 
+                    className="mt-2 text-blue-600 hover:text-blue-800 font-medium underline"
+                    onClick={() => window.location.href = '/login'}
+                  >
+                    Login to sync with server
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
-      </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Dialog open={isDeleteOpen} onClose={() => setIsDeleteOpen(false)} className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-        <div className="bg-white p-6 rounded-lg shadow-lg w-80">
-          <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
-          <p>Are you sure you want to delete this task?</p>
-          <div className="flex justify-end mt-4">
-            <button
-              className="bg-gray-300 text-gray-700 px-4 py-2 rounded mr-2 hover:bg-gray-400"
-              onClick={() => setIsDeleteOpen(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-              onClick={handleDeleteTask}
-            >
-              Delete
-            </button>
-          </div>
+        {/* Tasks Grid */}
+        <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 overflow-hidden">
+          {tasks.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-slate-600 mb-2">No tasks found</h3>
+              <p className="text-slate-500">Create your first task to get started</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gradient-to-r from-slate-100 to-blue-100">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Task</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Assignee</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Due Date</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Priority</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {tasks.map((task, index) => (
+                    <tr key={task.id || task._id} className={`hover:bg-slate-50/50 transition-colors duration-200 ${index % 2 === 0 ? 'bg-white/50' : 'bg-slate-50/30'}`}>
+                      <td className="px-6 py-4">
+                        <div>
+                          <div className="font-semibold text-slate-900">{task.title}</div>
+                          <div className="text-sm text-slate-600 mt-1">{task.description}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center">
+                          <FaUser className="mr-2 text-slate-400" />
+                          <span className="text-slate-700">{getEmployeeName(task.assignedTo)}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center">
+                          <FaClock className="mr-2 text-slate-400" />
+                          <span className="text-slate-700">{formatDate(task.deadline)}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                          task.priority === "high" 
+                            ? "bg-red-100 text-red-800 border border-red-200" 
+                            : task.priority === "medium" 
+                            ? "bg-yellow-100 text-yellow-800 border border-yellow-200" 
+                            : "bg-green-100 text-green-800 border border-green-200"
+                        }`}>
+                          <FaFlag className="mr-1" />
+                          {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                          task.status === "pending" 
+                            ? "bg-gray-100 text-gray-800 border border-gray-200" 
+                            : task.status === "in-progress" 
+                            ? "bg-blue-100 text-blue-800 border border-blue-200" 
+                            : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                        }`}>
+                          {task.status === "completed" && <FaCheck className="mr-1" />}
+                          {task.status.charAt(0).toUpperCase() + task.status.slice(1).replace('-', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex space-x-2">
+                          <button 
+                            className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-all duration-200"
+                            onClick={() => {
+                              setTaskToEdit(task);
+                              setIsEditOpen(true);
+                            }}
+                          >
+                            <FaEdit size={16} />
+                          </button>
+                          <button
+                            className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-all duration-200"
+                            onClick={() => {
+                              setTaskToDelete(task.id || task._id);
+                              setIsDeleteOpen(true);
+                            }}
+                          >
+                            <FaTrash size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      </Dialog>
+
+        {/* Add Task Modal */}
+        {isAddOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-slate-200">
+                <h2 className="text-2xl font-bold text-slate-800">Add New Task</h2>
+              </div>
+              
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Task Title</label>
+                  <input
+                    type="text"
+                    placeholder="Enter task title"
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    value={newTask.title}
+                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                  <textarea
+                    placeholder="Enter task description"
+                    rows={3}
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none"
+                    value={newTask.description}
+                    onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Deadline</label>
+                  <input
+                    type="date"
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    value={newTask.deadline}
+                    onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Priority</label>
+                  <select
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                    value={newTask.priority}
+                    onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
+                  <select
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                    value={newTask.assignedTo}
+                    onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
+                  >
+                    <option value="">Select Employee</option>
+                    {employees.map(employee => (
+                      <option key={employee._id || employee.id} value={employee._id || employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
+                  <select
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                    value={newTask.status}
+                    onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="p-6 bg-slate-50 rounded-b-2xl flex gap-3">
+                <button
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
+                  onClick={() => setIsAddOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg"
+                  onClick={handleAddTask}
+                >
+                  Add Task
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Task Modal */}
+        {isEditOpen && taskToEdit && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-slate-200">
+                <h2 className="text-2xl font-bold text-slate-800">Edit Task</h2>
+              </div>
+              
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Task Title</label>
+                  <input
+                    type="text"
+                    placeholder="Enter task title"
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    value={taskToEdit.title}
+                    onChange={(e) => setTaskToEdit({ ...taskToEdit, title: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                  <textarea
+                    placeholder="Enter task description"
+                    rows={3}
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none"
+                    value={taskToEdit.description}
+                    onChange={(e) => setTaskToEdit({ ...taskToEdit, description: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Deadline</label>
+                  <input
+                    type="date"
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    value={taskToEdit.deadline ? taskToEdit.deadline.split('T')[0] : ""}
+                    onChange={(e) => setTaskToEdit({ ...taskToEdit, deadline: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Priority</label>
+                  <select
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                    value={taskToEdit.priority}
+                    onChange={(e) => setTaskToEdit({ ...taskToEdit, priority: e.target.value })}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
+                  <select
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                    value={taskToEdit.assignedTo}
+                    onChange={(e) => setTaskToEdit({ ...taskToEdit, assignedTo: e.target.value })}
+                  >
+                    <option value="">Select Employee</option>
+                    {employees.map(employee => (
+                      <option key={employee._id || employee.id} value={employee._id || employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
+                  <select
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                    value={taskToEdit.status}
+                    onChange={(e) => setTaskToEdit({ ...taskToEdit, status: e.target.value })}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="p-6 bg-slate-50 rounded-b-2xl flex gap-3">
+                <button
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
+                  onClick={() => setIsEditOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg"
+                  onClick={handleEditTask}
+                >
+                  Update Task
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {isDeleteOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FaTrash className="w-8 h-8 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-800 mb-2">Delete Task</h2>
+                <p className="text-slate-600 mb-6">Are you sure you want to delete this task? This action cannot be undone.</p>
+                
+                <div className="flex gap-3">
+                  <button
+                    className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
+                    onClick={() => setIsDeleteOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg"
+                    onClick={handleDeleteTask}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

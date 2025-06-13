@@ -51,7 +51,7 @@ const EmployeePendingPage = () => {
     });
 
     // Listen for registration updates
-    socketConnection.on('registrationUpdate', (data) => {
+    socketConnection.on('registrationUpdate', async (data) => {
       console.log('📧 Received notification:', data);
       
       if (data.type === 'approval') {
@@ -68,10 +68,106 @@ const EmployeePendingPage = () => {
           }
         });
         
-        // Update user status in localStorage
-        const updatedUser = { ...userData, status: 'approved' };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        setUser(updatedUser);
+        // Fetch updated user data from the server to ensure we have complete information
+        try {
+          const token = localStorage.getItem('token');
+          const userId = userData.id || userData._id;
+          
+          const response = await fetch(`http://localhost:5000/api/users/${userId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            const updatedUserFromServer = await response.json();
+            console.log('Fetched updated user data from server:', updatedUserFromServer);
+            
+            // Create complete updated user data with server data
+            const completeUpdatedUser = { 
+              ...userData, 
+              ...updatedUserFromServer,
+              status: 'approved',
+              // Ensure all necessary fields are present
+              id: updatedUserFromServer.id || updatedUserFromServer._id || userData.id || userData._id,
+              _id: updatedUserFromServer._id || updatedUserFromServer.id || userData._id || userData.id,
+              name: updatedUserFromServer.name || updatedUserFromServer.fullName || userData.name,
+              email: updatedUserFromServer.email || userData.email,
+              username: updatedUserFromServer.username || userData.username,
+              role: updatedUserFromServer.role || userData.role,
+              department: updatedUserFromServer.department || userData.department || 'General',
+              position: updatedUserFromServer.position || userData.position || 'Staff',
+              phone: updatedUserFromServer.phone || userData.phone || '',
+              address: updatedUserFromServer.address || userData.address || '',
+              createdAt: updatedUserFromServer.createdAt || userData.createdAt || new Date().toISOString()
+            };
+            
+            // Store complete user data
+            localStorage.setItem('user', JSON.stringify(completeUpdatedUser));
+            
+            // Store individual employee data fields that the dashboard expects
+            localStorage.setItem('employeeId', completeUpdatedUser.id);
+            localStorage.setItem('employeeName', completeUpdatedUser.name);
+            localStorage.setItem('employeeEmail', completeUpdatedUser.email);
+            localStorage.setItem('employeeDepartment', completeUpdatedUser.department);
+            localStorage.setItem('employeePosition', completeUpdatedUser.position);
+            localStorage.setItem('employeePhone', completeUpdatedUser.phone);
+            localStorage.setItem('employeeAddress', completeUpdatedUser.address);
+            
+            console.log('Updated user data after approval:', completeUpdatedUser);
+            
+            setUser(completeUpdatedUser);
+            
+          } else {
+            // Fallback: use existing data with approval status
+            console.warn('Could not fetch updated user data, using existing data');
+            const fallbackUpdatedUser = { 
+              ...userData, 
+              status: 'approved',
+              id: userData.id || userData._id,
+              _id: userData._id || userData.id,
+              department: userData.department || 'General',
+              position: userData.position || 'Staff',
+              phone: userData.phone || '',
+              address: userData.address || '',
+              createdAt: userData.createdAt || new Date().toISOString()
+            };
+            
+            localStorage.setItem('user', JSON.stringify(fallbackUpdatedUser));
+            localStorage.setItem('employeeId', fallbackUpdatedUser.id);
+            localStorage.setItem('employeeName', fallbackUpdatedUser.name);
+            localStorage.setItem('employeeEmail', fallbackUpdatedUser.email);
+            localStorage.setItem('employeeDepartment', fallbackUpdatedUser.department);
+            localStorage.setItem('employeePosition', fallbackUpdatedUser.position);
+            
+            setUser(fallbackUpdatedUser);
+          }
+        } catch (error) {
+          console.error('Error fetching updated user data:', error);
+          
+          // Fallback: use existing data with approval status
+          const fallbackUpdatedUser = { 
+            ...userData, 
+            status: 'approved',
+            id: userData.id || userData._id,
+            _id: userData._id || userData.id,
+            department: userData.department || 'General',
+            position: userData.position || 'Staff',
+            phone: userData.phone || '',
+            address: userData.address || '',
+            createdAt: userData.createdAt || new Date().toISOString()
+          };
+          
+          localStorage.setItem('user', JSON.stringify(fallbackUpdatedUser));
+          localStorage.setItem('employeeId', fallbackUpdatedUser.id);
+          localStorage.setItem('employeeName', fallbackUpdatedUser.name);
+          localStorage.setItem('employeeEmail', fallbackUpdatedUser.email);
+          localStorage.setItem('employeeDepartment', fallbackUpdatedUser.department);
+          localStorage.setItem('employeePosition', fallbackUpdatedUser.position);
+          
+          setUser(fallbackUpdatedUser);
+        }
         
         // Redirect to employee dashboard after approval
         setTimeout(() => {
@@ -93,7 +189,11 @@ const EmployeePendingPage = () => {
         });
         
         // Update user status in localStorage
-        const updatedUser = { ...userData, status: 'rejected' };
+        const updatedUser = { 
+          ...userData, 
+          status: 'rejected',
+          rejectionReason: data.reason || 'No reason provided'
+        };
         localStorage.setItem('user', JSON.stringify(updatedUser));
         setUser(updatedUser);
       }
@@ -143,6 +243,8 @@ const EmployeePendingPage = () => {
     localStorage.removeItem('employeeEmail');
     localStorage.removeItem('employeeDepartment');
     localStorage.removeItem('employeePosition');
+    localStorage.removeItem('employeePhone');
+    localStorage.removeItem('employeeAddress');
     
     // Disconnect socket
     if (socket) {
@@ -158,6 +260,63 @@ const EmployeePendingPage = () => {
       position: "top-right",
       autoClose: 4000,
     });
+  };
+
+  const handleAccessDashboard = async () => {
+    if (user && user.status === 'approved') {
+      // Try to fetch the most up-to-date user data before redirecting
+      try {
+        const token = localStorage.getItem('token');
+        const userId = user.id || user._id;
+        
+        const response = await fetch(`http://localhost:5000/api/users/${userId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const latestUserData = await response.json();
+          
+          // Ensure complete user data structure
+          const completeUserData = {
+            id: latestUserData.id || latestUserData._id || user.id,
+            _id: latestUserData._id || latestUserData.id || user._id,
+            username: latestUserData.username || user.username,
+            name: latestUserData.name || latestUserData.fullName || user.name,
+            email: latestUserData.email || user.email,
+            role: latestUserData.role || user.role,
+            status: 'approved',
+            department: latestUserData.department || user.department || 'General',
+            position: latestUserData.position || user.position || 'Staff',
+            phone: latestUserData.phone || user.phone || '',
+            address: latestUserData.address || user.address || '',
+            createdAt: latestUserData.createdAt || user.createdAt || new Date().toISOString()
+          };
+          
+          // Store complete data
+          localStorage.setItem('user', JSON.stringify(completeUserData));
+          localStorage.setItem('employeeId', completeUserData.id);
+          localStorage.setItem('employeeName', completeUserData.name);
+          localStorage.setItem('employeeEmail', completeUserData.email);
+          localStorage.setItem('employeeDepartment', completeUserData.department);
+          localStorage.setItem('employeePosition', completeUserData.position);
+          localStorage.setItem('employeePhone', completeUserData.phone);
+          localStorage.setItem('employeeAddress', completeUserData.address);
+          
+          console.log('Navigating to employee dashboard with latest data:', completeUserData);
+          
+        } else {
+          console.warn('Could not fetch latest user data, using existing data');
+        }
+      } catch (error) {
+        console.warn('Error fetching latest user data:', error);
+      }
+      
+      // Navigate regardless of whether we could fetch latest data
+      navigate('/employee');
+    }
   };
 
   if (!user) {
@@ -278,7 +437,7 @@ const EmployeePendingPage = () => {
               </p>
               
               <button
-                onClick={() => navigate('/employee')}
+                onClick={handleAccessDashboard}
                 className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-md font-medium transition duration-200"
               >
                 Access Employee Dashboard
@@ -352,6 +511,18 @@ const EmployeePendingPage = () => {
               <p className="text-sm font-medium text-gray-500">Role</p>
               <p className="text-gray-900">{user.role}</p>
             </div>
+            {user.department && (
+              <div>
+                <p className="text-sm font-medium text-gray-500">Department</p>
+                <p className="text-gray-900">{user.department}</p>
+              </div>
+            )}
+            {user.position && (
+              <div>
+                <p className="text-sm font-medium text-gray-500">Position</p>
+                <p className="text-gray-900">{user.position}</p>
+              </div>
+            )}
             {user.phone && (
               <div>
                 <p className="text-sm font-medium text-gray-500">Phone</p>

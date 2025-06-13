@@ -1,4 +1,4 @@
-// entities/User.js - Updated User model with rejection fields
+// entities/User.js - Updated User model with Google auth support
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -20,7 +20,10 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: function() {
+      // Password not required for Google auth users
+      return !this.googleId;
+    },
     minlength: [6, 'Password must be at least 6 characters']
   },
   role: {
@@ -38,7 +41,7 @@ const userSchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: false // Optional field for additional user info
+    required: false
   },
   phone: {
     type: String,
@@ -52,6 +55,15 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
+  googleId: { 
+    type: String, 
+    default: null,
+    sparse: true
+  },
+  profilePicture: { 
+    type: String, 
+    default: null 
+  },
   approvedAt: {
     type: Date,
     required: false
@@ -61,7 +73,6 @@ const userSchema = new mongoose.Schema({
     ref: 'User',
     required: false
   },
-  // New rejection-related fields
   rejectedAt: {
     type: Date,
     required: false
@@ -77,9 +88,9 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Hash password before saving
+// Hash password before saving (only if password exists)
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('password') || !this.password) return next();
   
   try {
     const salt = await bcrypt.genSalt(10);
@@ -92,6 +103,7 @@ userSchema.pre('save', async function(next) {
 
 // Method to compare password
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.password) return false; // No password for Google auth users
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
