@@ -1,28 +1,33 @@
 import React, { useState, useEffect } from "react";
-import { FaEdit, FaTrash, FaSync } from "react-icons/fa";
+import { FaEdit, FaTrash } from "react-icons/fa"; // FaSync is not used, so removed
 import axios from "axios";
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState([]); // New state for departments
+  const [departments, setDepartments] = useState([]);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
-  const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false); // New modal for departments
+  const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [apiBaseUrl] = useState("http://localhost:5000/api"); // apiBaseUrl can be constant
-  
+  const [isDepartmentDetailsModalOpen, setIsDepartmentDetailsModalOpen] = useState(false);
+  const [selectedDepartment, setSelectedDepartment] = useState(null);
+  const [departmentEmployees, setDepartmentEmployees] = useState([]);
+  const [isAddingEmployeeToDept, setIsAddingEmployeeToDept] = useState(false);
+  const [selectedEmployeeForDept, setSelectedEmployeeForDept] = useState("");
+  const [apiBaseUrl] = useState("http://localhost:5000/api");
+
   const [newEmployee, setNewEmployee] = useState({
     username: "",
     name: "",
     email: "",
     phone: "",
     address: "",
-    department: "", // New field for department
+    department: "",
   });
 
-  const [currentEditingEmployee, setCurrentEditingEmployee] = useState(null); // For employee editing
-  
-  const [newDepartment, setNewDepartment] = useState({ // New state for new department form
+  const [currentEditingEmployee, setCurrentEditingEmployee] = useState(null);
+
+  const [newDepartment, setNewDepartment] = useState({
     name: "",
     description: "",
     code: "",
@@ -31,14 +36,118 @@ const EmployeeManagement = () => {
     location: "",
   });
 
-  const [currentEditingDepartment, setCurrentEditingDepartment] = useState(null); // For department editing
-
+  const [currentEditingDepartment, setCurrentEditingDepartment] = useState(null);
 
   // Fetch employees and departments on component mount
   useEffect(() => {
     fetchEmployees();
-    fetchDepartments(); // Fetch departments on load
+    fetchDepartments();
   }, [apiBaseUrl]);
+
+  const getAvailableEmployees = () => {
+    return employees.filter(emp => emp.department !== selectedDepartment._id);
+  };
+
+  const fetchDepartmentEmployees = async (departmentId) => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Authentication token not found. Please log in again.");
+        return;
+      }
+
+      // Filter employees by department from the existing employees array
+      const deptEmployees = employees.filter(emp => emp.department === departmentId);
+      setDepartmentEmployees(deptEmployees);
+      setError("");
+    } catch (err) {
+      console.error("Error fetching department employees:", err);
+      handleApiError(err, "fetching department employees");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddEmployeeToDepartment = async () => {
+    try {
+      setIsLoading(true);
+
+      if (!selectedEmployeeForDept) {
+        setError("Please select an employee to add to the department!");
+        setIsLoading(false);
+        return;
+      }
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Authentication token not found. Please log in again.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Update the selected employee's department
+      await axios.put(
+        `${apiBaseUrl}/users/${selectedEmployeeForDept}`,
+        { department: selectedDepartment._id },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        }
+      );
+
+      // Refresh data
+      await fetchEmployees();
+      await fetchDepartmentEmployees(selectedDepartment._id);
+      
+      // Reset form
+      setSelectedEmployeeForDept("");
+      setIsAddingEmployeeToDept(false);
+      setError("");
+    } catch (err) {
+      console.error("Error adding employee to department:", err);
+      handleApiError(err, "adding employee to department");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemoveFromDepartment = async (employeeId) => {
+    if (window.confirm("Are you sure you want to remove this employee from the department?")) {
+      try {
+        setIsLoading(true);
+        const token = localStorage.getItem("token");
+        if (!token) {
+          setError("Authentication token not found. Please log in again.");
+          return;
+        }
+
+        await axios.put(
+          `${apiBaseUrl}/users/${employeeId}`,
+          { department: null },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          }
+        );
+
+        await fetchEmployees();
+        await fetchDepartmentEmployees(selectedDepartment._id);
+        setError("");
+      } catch (err) {
+        console.error("Error removing employee from department:", err);
+        handleApiError(err, "removing employee from department");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
 
   // Fetch all employees with better error handling
   const fetchEmployees = async () => {
@@ -65,14 +174,14 @@ const EmployeeManagement = () => {
             timeout: 10000
           });
         } catch (secondError) {
-          response = await axios.get(`${apiBaseUrl}/employee`, { // Changed to /employee as per common practice
+          response = await axios.get(`${apiBaseUrl}/employee`, {
             headers: { Authorization: `Bearer ${token}` },
             timeout: 10000
           });
         }
       }
 
-      const allUsers = response.data.data || response.data; // Adjust based on actual API response structure
+      const allUsers = response.data.data || response.data;
       const employeeUsers = allUsers.filter(user => user.role === 'Employee');
 
       setEmployees(employeeUsers);
@@ -100,7 +209,7 @@ const EmployeeManagement = () => {
         headers: { Authorization: `Bearer ${token}` },
         timeout: 10000
       });
-      setDepartments(response.data.data); // Assuming data is nested under 'data'
+      setDepartments(response.data.data);
       setError("");
     } catch (err) {
       console.error("Error fetching departments:", err);
@@ -142,7 +251,7 @@ const EmployeeManagement = () => {
     try {
       setIsLoading(true);
 
-      if (Object.values(newEmployee).some((value) => value === "" && value !== 0)) { // Allow 0 for budget
+      if (Object.values(newEmployee).some((value) => value === "" && value !== 0)) {
         setError("Please fill out all required fields!");
         setIsLoading(false);
         return;
@@ -154,17 +263,11 @@ const EmployeeManagement = () => {
         setIsLoading(false);
         return;
       }
-      
+
       const employeeData = {
         ...newEmployee,
-        role: 'Employee' // Ensure role is set to Employee
+        role: 'Employee'
       };
-      
-      // If a password is required for new user registration, add it here.
-      // Based on server.js seed, a password is 'saniya123'. You might want a default or a field in the form.
-      // For simplicity, let's assume registration handles a default password or it's not strictly required by the auth/register route
-      // if (!employeeData.password) employeeData.password = "defaultpassword123"; // Example: add a default password if not provided by UI
-
 
       await axios.post(
         `${apiBaseUrl}/auth/register`,
@@ -178,7 +281,7 @@ const EmployeeManagement = () => {
         }
       );
 
-      await fetchEmployees(); // Refresh the employee list after adding
+      await fetchEmployees();
       setNewEmployee({ username: "", name: "", email: "", phone: "", address: "", department: "" });
       setIsEmployeeModalOpen(false);
       setError("");
@@ -202,20 +305,19 @@ const EmployeeManagement = () => {
           return;
         }
 
-        // Try different delete endpoints
         try {
-          await axios.delete(`${apiBaseUrl}/users/${id}`, { // Assuming this is the correct endpoint for users
+          await axios.delete(`${apiBaseUrl}/users/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
             timeout: 10000
           });
         } catch (firstError) {
-          await axios.delete(`${apiBaseUrl}/auth/users/${id}`, { // Fallback to auth endpoint
+          await axios.delete(`${apiBaseUrl}/auth/users/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
             timeout: 10000
           });
         }
-        
-        await fetchEmployees(); // Refresh the employee list
+
+        await fetchEmployees();
         setError("");
       } catch (err) {
         console.error("Error deleting employee:", err);
@@ -238,16 +340,15 @@ const EmployeeManagement = () => {
         setIsLoading(false);
         return;
       }
-      
+
       const updatedData = { ...currentEditingEmployee };
-      // Ensure department is set to null if empty string
       if (updatedData.department === "") {
         updatedData.department = null;
       }
 
 
       await axios.put(
-        `${apiBaseUrl}/users/${currentEditingEmployee._id}`, // Assuming this is the correct endpoint for updating users
+        `${apiBaseUrl}/users/${currentEditingEmployee._id}`,
         updatedData,
         {
           headers: {
@@ -257,8 +358,8 @@ const EmployeeManagement = () => {
           timeout: 10000
         }
       );
-      
-      await fetchEmployees(); // Refresh the employee list
+
+      await fetchEmployees();
       setCurrentEditingEmployee(null);
       setIsEmployeeModalOpen(false);
       setError("");
@@ -288,7 +389,6 @@ const EmployeeManagement = () => {
       }
 
       const departmentDataToSend = { ...newDepartment };
-      // Ensure manager is set to null if empty string
       if (departmentDataToSend.manager === "") {
         departmentDataToSend.manager = null;
       }
@@ -331,7 +431,6 @@ const EmployeeManagement = () => {
       }
 
       const departmentDataToUpdate = { ...currentEditingDepartment };
-      // Ensure manager is set to null if empty string
       if (departmentDataToUpdate.manager === "") {
         departmentDataToUpdate.manager = null;
       }
@@ -377,7 +476,7 @@ const EmployeeManagement = () => {
         });
 
         await fetchDepartments();
-        await fetchEmployees(); // Refresh employees in case some were in this department
+        await fetchEmployees();
         setError("");
       } catch (err) {
         console.error("Error deleting department:", err);
@@ -395,22 +494,22 @@ const EmployeeManagement = () => {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Employee Management</h1>
-        <div className="space-x-2">
+    <div className="container mx-auto p-6 bg-gradient-to-br from-green-50 to-green-100 min-h-screen">
+      <div className="flex justify-between items-center mb-8 bg-white p-4 rounded-lg shadow-md">
+        <h1 className="text-3xl font-extrabold text-green-800">Employee & Department Management</h1>
+        <div className="space-x-3">
           <button
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+            className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-5 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:-translate-y-1"
             onClick={() => {
               setCurrentEditingEmployee(null);
               setNewEmployee({ username: "", name: "", email: "", phone: "", address: "", department: "" });
               setIsEmployeeModalOpen(true);
             }}
           >
-            Add Employee
+            Add New Employee
           </button>
           <button
-            className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-5 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:-translate-y-1"
             onClick={() => {
               setCurrentEditingDepartment(null);
               setNewDepartment({ name: "", description: "", code: "", manager: "", budget: 0, location: "" });
@@ -423,12 +522,12 @@ const EmployeeManagement = () => {
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          <p className="font-bold">Error</p>
-          <p>{error}</p>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-5 py-4 rounded-lg mb-6 shadow-md">
+          <p className="font-bold text-lg">Error:</p>
+          <p className="mt-1">{error}</p>
           <button
             onClick={handleRetryConnection}
-            className="mt-2 bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-3 rounded"
+            className="mt-4 bg-red-600 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out"
           >
             Retry Connection
           </button>
@@ -436,254 +535,289 @@ const EmployeeManagement = () => {
       )}
 
       {isLoading ? (
-        <div className="text-center py-8">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent"></div>
-          <p className="mt-2">Loading data...</p>
+        <div className="text-center py-10 bg-white rounded-lg shadow-md">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-green-500 border-t-transparent"></div>
+          <p className="mt-3 text-lg text-green-700">Loading data, please wait...</p>
         </div>
       ) : (
         <>
-          <h2 className="text-xl font-semibold mb-3">Employees</h2>
-          <div className="overflow-x-auto mb-8">
-            <table className="min-w-full bg-white border">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="py-2 px-4 border-b">Name</th>
-                  <th className="py-2 px-4 border-b">Username</th>
-                  <th className="py-2 px-4 border-b">Email</th>
-                  <th className="py-2 px-4 border-b">Phone</th>
-                  <th className="py-2 px-4 border-b">Address</th>
-                  <th className="py-2 px-4 border-b">Department</th> {/* New column */}
-                  <th className="py-2 px-4 border-b">Role</th>
-                  <th className="py-2 px-4 border-b">Status</th>
-                  <th className="py-2 px-4 border-b">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.length > 0 ? (
-                  employees.map((employee) => (
-                    <tr key={employee._id}>
-                      <td className="py-2 px-4 border-b">{employee.name}</td>
-                      <td className="py-2 px-4 border-b">{employee.username}</td>
-                      <td className="py-2 px-4 border-b">{employee.email}</td>
-                      <td className="py-2 px-4 border-b">{employee.phone}</td>
-                      <td className="py-2 px-4 border-b">{employee.address}</td>
-                      <td className="py-2 px-4 border-b">
-                        {employee.department ? 
-                          (departments.find(dept => dept._id === employee.department)?.name || "N/A") 
-                          : "N/A"}
-                      </td>
-                      <td className="py-2 px-4 border-b">{employee.role}</td>
-                      <td className="py-2 px-4 border-b">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          employee.status === 'pending'
-                            ? 'bg-yellow-200 text-yellow-800'
-                            : employee.status === 'approved'
-                            ? 'bg-green-200 text-green-800'
-                            : 'bg-gray-200 text-gray-800'
-                        }`}>
-                          {employee.status || 'active'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-4 border-b flex space-x-2">
-                        <button
-                          className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded"
-                          onClick={() => {
-                            setCurrentEditingEmployee(employee);
-                            setNewEmployee(employee); // Populate the form for editing
-                            setIsEmployeeModalOpen(true);
-                          }}
-                        >
-                          <FaEdit size={18} />
-                        </button>
-                        <button
-                          className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded"
-                          onClick={() => handleDeleteEmployee(employee._id)}
-                        >
-                          <FaTrash size={18} />
-                        </button>
+          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 className="text-2xl font-bold text-green-700 mb-5">Current Employees</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border-collapse">
+                <thead className="bg-green-100">
+                  <tr>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Name</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Username</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Email</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Phone</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Address</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Department</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Role</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Status</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.length > 0 ? (
+                    employees.map((employee, index) => (
+                      <tr key={employee._id} className={index % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                        <td className="py-3 px-4 border-b border-gray-200">{employee.name}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">{employee.username}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">{employee.email}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">{employee.phone}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">{employee.address}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">
+                          {employee.department ?
+                            (departments.find(dept => dept._id === employee.department)?.name || "N/A")
+                            : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 border-b border-gray-200">{employee.role}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                            employee.status === 'pending'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : employee.status === 'approved'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {employee.status || 'active'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 border-b border-gray-200 flex space-x-2">
+                          <button
+                            className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
+                            onClick={() => {
+                              setCurrentEditingEmployee(employee);
+                              setNewEmployee(employee);
+                              setIsEmployeeModalOpen(true);
+                            }}
+                            title="Edit Employee"
+                          >
+                            <FaEdit size={16} />
+                          </button>
+                          <button
+                            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
+                            onClick={() => handleDeleteEmployee(employee._id)}
+                            title="Delete Employee"
+                          >
+                            <FaTrash size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="9" className="py-5 text-center text-gray-500">
+                        No employees found. {error ? "Please fix the connection error and try again." : ""}
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="9" className="py-4 text-center">
-                      No employees found. {error ? "Please fix the connection error and try again." : ""}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <h2 className="text-xl font-semibold mb-3 mt-8">Departments</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="py-2 px-4 border-b">Name</th>
-                  <th className="py-2 px-4 border-b">Code</th>
-                  <th className="py-2 px-4 border-b">Description</th>
-                  <th className="py-2 px-4 border-b">Manager</th>
-                  <th className="py-2 px-4 border-b">Budget</th>
-                  <th className="py-2 px-4 border-b">Location</th>
-                  <th className="py-2 px-4 border-b">Active</th>
-                  <th className="py-2 px-4 border-b">Employee Count</th>
-                  <th className="py-2 px-4 border-b">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {departments.length > 0 ? (
-                  departments.map((dept) => (
-                    <tr key={dept._id}>
-                      <td className="py-2 px-4 border-b">{dept.name}</td>
-                      <td className="py-2 px-4 border-b">{dept.code}</td>
-                      <td className="py-2 px-4 border-b">{dept.description}</td>
-                      <td className="py-2 px-4 border-b">
-                        {dept.manager ? dept.manager.name : "N/A"}
-                      </td>
-                      <td className="py-2 px-4 border-b">${dept.budget?.toLocaleString() || '0'}</td>
-                      <td className="py-2 px-4 border-b">{dept.location}</td>
-                      <td className="py-2 px-4 border-b">{dept.isActive ? "Yes" : "No"}</td>
-                      <td className="py-2 px-4 border-b">{dept.employeeCount}</td>
-                      <td className="py-2 px-4 border-b flex space-x-2">
-                        <button
-                          className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded"
-                          onClick={() => {
-                            setCurrentEditingDepartment(dept);
-                            setNewDepartment(dept); // Populate the form for editing
-                            setIsDepartmentModalOpen(true);
-                          }}
-                        >
-                          <FaEdit size={18} />
-                        </button>
-                        <button
-                          className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded"
-                          onClick={() => handleDeleteDepartment(dept._id)}
-                        >
-                          <FaTrash size={18} />
-                        </button>
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-2xl font-bold text-green-700 mb-5">Departments</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border-collapse">
+                <thead className="bg-green-100">
+                  <tr>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Name</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Code</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Description</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Manager</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Budget</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Location</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Active</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Employee Count</th>
+                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {departments.length > 0 ? (
+                    departments.map((dept, index) => (
+                      <tr key={dept._id} className={index % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                        <td className="py-3 px-4 border-b border-gray-200">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{dept.name}</span>
+                            <button
+                              className="bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded-md text-xs transition duration-300 ease-in-out ml-2"
+                              onClick={() => {
+                                setSelectedDepartment(dept);
+                                fetchDepartmentEmployees(dept._id);
+                                setIsDepartmentDetailsModalOpen(true);
+                              }}
+                              title="View Department Details"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 border-b border-gray-200">{dept.code}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">{dept.description}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">
+                          {dept.manager ? dept.manager.name : "N/A"}
+                        </td>
+                        <td className="py-3 px-4 border-b border-gray-200">${dept.budget?.toLocaleString() || '0'}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">{dept.location}</td>
+                        <td className="py-3 px-4 border-b border-gray-200">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                            dept.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {dept.isActive ? "Yes" : "No"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 border-b border-gray-200">
+                          <span className="bg-blue-100 text-green-800 px-2 py-1 rounded-full text-sm font-semibold">
+                            {employees.filter(emp => emp.department === dept._id).length}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 border-b border-gray-200 flex space-x-2">
+                          <button
+                            className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
+                            onClick={() => {
+                              setCurrentEditingDepartment(dept);
+                              setNewDepartment(dept);
+                              setIsDepartmentModalOpen(true);
+                            }}
+                            title="Edit Department"
+                          >
+                            <FaEdit size={16} />
+                          </button>
+                          <button
+                            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
+                            onClick={() => handleDeleteDepartment(dept._id)}
+                            title="Delete Department"
+                          >
+                            <FaTrash size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="9" className="py-5 text-center text-gray-500">
+                        No departments found.
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="9" className="py-4 text-center">
-                      No departments found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
 
       {/* Employee Add/Edit Modal */}
       {isEmployeeModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">
-              {currentEditingEmployee ? "Edit Employee" : "Add New Employee"}
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg transform transition-all duration-300 scale-100">
+            <h2 className="text-2xl font-bold text-green-700 mb-6 text-center">
+              {currentEditingEmployee ? "Edit Employee Details" : "Add New Employee"}
             </h2>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Username</label>
-              <input
-                type="text"
-                name="username"
-                value={currentEditingEmployee ? currentEditingEmployee.username : newEmployee.username}
-                onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, username: e.target.value}) : handleEmployeeChange(e)}
-                className="w-full px-3 py-2 border rounded"
-                disabled={!!currentEditingEmployee} // Disable username edit for existing employee if not allowed
-              />
-            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Username</label>
+                <input
+                  type="text"
+                  name="username"
+                  value={currentEditingEmployee ? currentEditingEmployee.username : newEmployee.username}
+                  onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, username: e.target.value}) : handleEmployeeChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200"
+                  disabled={!!currentEditingEmployee}
+                />
+              </div>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Full Name</label>
-              <input
-                type="text"
-                name="name"
-                value={currentEditingEmployee ? currentEditingEmployee.name : newEmployee.name}
-                onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, name: e.target.value}) : handleEmployeeChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Full Name</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={currentEditingEmployee ? currentEditingEmployee.name : newEmployee.name}
+                  onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, name: e.target.value}) : handleEmployeeChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200"
+                />
+              </div>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Email</label>
-              <input
-                type="email"
-                name="email"
-                value={currentEditingEmployee ? currentEditingEmployee.email : newEmployee.email}
-                onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, email: e.target.value}) : handleEmployeeChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Email</label>
+                <input
+                  type="email"
+                  name="email"
+                  value={currentEditingEmployee ? currentEditingEmployee.email : newEmployee.email}
+                  onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, email: e.target.value}) : handleEmployeeChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200"
+                />
+              </div>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Phone</label>
-              <input
-                type="text"
-                name="phone"
-                value={currentEditingEmployee ? currentEditingEmployee.phone : newEmployee.phone}
-                onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, phone: e.target.value}) : handleEmployeeChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Phone</label>
+                <input
+                  type="text"
+                  name="phone"
+                  value={currentEditingEmployee ? currentEditingEmployee.phone : newEmployee.phone}
+                  onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, phone: e.target.value}) : handleEmployeeChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200"
+                />
+              </div>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Address</label>
-              <input
-                type="text"
-                name="address"
-                value={currentEditingEmployee ? currentEditingEmployee.address : newEmployee.address}
-                onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, address: e.target.value}) : handleEmployeeChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Address</label>
+                <input
+                  type="text"
+                  name="address"
+                  value={currentEditingEmployee ? currentEditingEmployee.address : newEmployee.address}
+                  onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, address: e.target.value}) : handleEmployeeChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200"
+                />
+              </div>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Department</label>
-              <select
-                name="department"
-                value={currentEditingEmployee ? (currentEditingEmployee.department || "") : newEmployee.department}
-                onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, department: e.target.value}) : handleEmployeeChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              >
-                <option value="">Select Department (Optional)</option>
-                {departments.map((dept) => (
-                  <option key={dept._id} value={dept._id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {currentEditingEmployee && (
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Status</label>
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Department</label>
                 <select
-                  name="status"
-                  value={currentEditingEmployee.status}
-                  onChange={(e) => setCurrentEditingEmployee({...currentEditingEmployee, status: e.target.value})}
-                  className="w-full px-3 py-2 border rounded"
+                  name="department"
+                  value={currentEditingEmployee ? (currentEditingEmployee.department || "") : newEmployee.department}
+                  onChange={(e) => currentEditingEmployee ? setCurrentEditingEmployee({...currentEditingEmployee, department: e.target.value}) : handleEmployeeChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200 bg-white"
                 >
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
+                  <option value="">Select Department (Optional)</option>
+                  {departments.map((dept) => (
+                    <option key={dept._id} value={dept._id}>
+                      {dept.name}
+                    </option>
+                  ))}
                 </select>
               </div>
-            )}
 
-            <div className="flex justify-end space-x-2">
+              {currentEditingEmployee && (
+                <div>
+                  <label className="block text-gray-700 text-sm font-semibold mb-2">Status</label>
+                  <select
+                    name="status"
+                    value={currentEditingEmployee.status}
+                    onChange={(e) => setCurrentEditingEmployee({...currentEditingEmployee, status: e.target.value})}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-200 bg-white"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
               <button
-                className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out"
                 onClick={() => setIsEmployeeModalOpen(false)}
               >
                 Cancel
               </button>
               <button
-                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={currentEditingEmployee ? handleEditEmployee : handleAddEmployee}
                 disabled={isLoading}
               >
@@ -696,112 +830,303 @@ const EmployeeManagement = () => {
 
       {/* Department Add/Edit Modal */}
       {isDepartmentModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">
-              {currentEditingDepartment ? "Edit Department" : "Add New Department"}
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg transform transition-all duration-300 scale-100">
+            <h2 className="text-2xl font-bold text-emerald-700 mb-6 text-center">
+              {currentEditingDepartment ? "Edit Department Details" : "Add New Department"}
             </h2>
 
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Department Name</label>
-              <input
-                type="text"
-                name="name"
-                value={currentEditingDepartment ? currentEditingDepartment.name : newDepartment.name}
-                onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, name: e.target.value}) : handleDepartmentChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Department Code</label>
-              <input
-                type="text"
-                name="code"
-                value={currentEditingDepartment ? currentEditingDepartment.code : newDepartment.code}
-                onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, code: e.target.value}) : handleDepartmentChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Description</label>
-              <textarea
-                name="description"
-                value={currentEditingDepartment ? currentEditingDepartment.description : newDepartment.description}
-                onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, description: e.target.value}) : handleDepartmentChange(e)}
-                className="w-full px-3 py-2 border rounded"
-                rows="3"
-              ></textarea>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Manager (Employee)</label>
-              <select
-                name="manager"
-                value={currentEditingDepartment ? (currentEditingDepartment.manager?._id || currentEditingDepartment.manager || "") : newDepartment.manager}
-                onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, manager: e.target.value}) : handleDepartmentChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              >
-                <option value="">Select Manager (Optional)</option>
-                {employees.filter(emp => emp.role === 'Employee' || emp.role === 'Administrator').map((emp) => ( // Managers can be employees or admins
-                  <option key={emp._id} value={emp._id}>
-                    {emp.name} ({emp.username})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Budget</label>
-              <input
-                type="number"
-                name="budget"
-                value={currentEditingDepartment ? currentEditingDepartment.budget : newDepartment.budget}
-                onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, budget: Number(e.target.value)}) : handleDepartmentChange(e)}
-                className="w-full px-3 py-2 border rounded"
-                min="0"
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Location</label>
-              <input
-                type="text"
-                name="location"
-                value={currentEditingDepartment ? currentEditingDepartment.location : newDepartment.location}
-                onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, location: e.target.value}) : handleDepartmentChange(e)}
-                className="w-full px-3 py-2 border rounded"
-              />
-            </div>
-
-            {currentEditingDepartment && (
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Is Active?</label>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Department Name</label>
                 <input
-                  type="checkbox"
-                  name="isActive"
-                  checked={currentEditingDepartment.isActive}
-                  onChange={(e) => setCurrentEditingDepartment({...currentEditingDepartment, isActive: e.target.checked})}
-                  className="mr-2"
+                  type="text"
+                  name="name"
+                  value={currentEditingDepartment ? currentEditingDepartment.name : newDepartment.name}
+                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, name: e.target.value}) : handleDepartmentChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200"
                 />
-                <span>{currentEditingDepartment.isActive ? "Yes" : "No"}</span>
               </div>
-            )}
 
-            <div className="flex justify-end space-x-2">
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Department Code</label>
+                <input
+                  type="text"
+                  name="code"
+                  value={currentEditingDepartment ? currentEditingDepartment.code : newDepartment.code}
+                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, code: e.target.value}) : handleDepartmentChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Description</label>
+                <textarea
+                  name="description"
+                  value={currentEditingDepartment ? currentEditingDepartment.description : newDepartment.description}
+                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, description: e.target.value}) : handleDepartmentChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200"
+                  rows="3"
+                ></textarea>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Manager (Employee)</label>
+                <select
+                  name="manager"
+                  value={currentEditingDepartment ? (currentEditingDepartment.manager?._id || currentEditingDepartment.manager || "") : newDepartment.manager}
+                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, manager: e.target.value}) : handleDepartmentChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200 bg-white"
+                >
+                  <option value="">Select Manager (Optional)</option>
+                  {employees.filter(emp => emp.role === 'Employee' || emp.role === 'Administrator').map((emp) => (
+                    <option key={emp._id} value={emp._id}>
+                      {emp.name} ({emp.username})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Budget</label>
+                <input
+                  type="number"
+                  name="budget"
+                  value={currentEditingDepartment ? currentEditingDepartment.budget : newDepartment.budget}
+                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, budget: Number(e.target.value)}) : handleDepartmentChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200"
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">Location</label>
+                <input
+                  type="text"
+                  name="location"
+                  value={currentEditingDepartment ? currentEditingDepartment.location : newDepartment.location}
+                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, location: e.target.value}) : handleDepartmentChange(e)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200"
+                />
+              </div>
+
+              {currentEditingDepartment && (
+                <div className="flex items-center mt-4">
+                  <input
+                    type="checkbox"
+                    name="isActive"
+                    id="isActive"
+                    checked={currentEditingDepartment.isActive}
+                    onChange={(e) => setCurrentEditingDepartment({...currentEditingDepartment, isActive: e.target.checked})}
+                    className="mr-3 h-5 w-5 text-emerald-600 focus:ring-emerald-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="isActive" className="text-gray-700 text-sm font-semibold">Is Active?</label>
+                  <span className="ml-2 text-sm text-gray-600">({currentEditingDepartment.isActive ? "Yes" : "No"})</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
               <button
-                className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out"
                 onClick={() => setIsDepartmentModalOpen(false)}
               >
                 Cancel
               </button>
               <button
-                className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={currentEditingDepartment ? handleUpdateDepartment : handleAddDepartment}
                 disabled={isLoading}
               >
                 {isLoading ? "Saving..." : (currentEditingDepartment ? "Update Department" : "Add Department")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Department Details Modal */}
+      {isDepartmentDetailsModalOpen && selectedDepartment && (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-100">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-green-700">
+                {selectedDepartment.name} Department Details
+              </h2>
+              <button
+                onClick={() => setIsDepartmentDetailsModalOpen(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Department Info */}
+            <div className="bg-blue-50 p-4 rounded-lg mb-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p><strong>Code:</strong> {selectedDepartment.code}</p>
+                  <p><strong>Manager:</strong> {selectedDepartment.manager?.name || "N/A"}</p>
+                  <p><strong>Budget:</strong> ${selectedDepartment.budget?.toLocaleString() || '0'}</p>
+                </div>
+                <div>
+                  <p><strong>Location:</strong> {selectedDepartment.location}</p>
+                  <p><strong>Status:</strong> {selectedDepartment.isActive ? "Active" : "Inactive"}</p>
+                  <p><strong>Total Employees:</strong> {departmentEmployees.length}</p>
+                </div>
+              </div>
+              {selectedDepartment.description && (
+                <div className="mt-3">
+                  <p><strong>Description:</strong> {selectedDepartment.description}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Add Employee Section */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold text-green-700">Department Employees</h3>
+                <button
+                  className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300"
+                  onClick={() => setIsAddingEmployeeToDept(true)}
+                >
+                  Add Employee to Department
+                </button>
+              </div>
+
+              {/* Add Employee Form */}
+              {isAddingEmployeeToDept && (
+              <div className="bg-green-50 p-4 rounded-lg mb-4">
+                <h4 className="text-lg font-semibold mb-3">Add Existing Employee to {selectedDepartment.name}</h4>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                      Select Employee
+                    </label>
+                    <select
+                      value={selectedEmployeeForDept}
+                      onChange={(e) => setSelectedEmployeeForDept(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                    >
+                      <option value="">Choose an employee...</option>
+                      {getAvailableEmployees().map((employee) => (
+                        <option key={employee._id} value={employee._id}>
+                          {employee.name} ({employee.username}) - {employee.email}
+                        </option>
+                      ))}
+                    </select>
+                    {getAvailableEmployees().length === 0 && (
+                      <p className="text-sm text-gray-500 mt-2">
+                        No available employees to assign. All employees are already assigned to departments.
+                      </p>
+                    )}
+                  </div>
+                  
+                  {/* Show selected employee details */}
+                  {selectedEmployeeForDept && (
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <h5 className="font-semibold text-green-800 mb-2">Selected Employee Details:</h5>
+                      {(() => {
+                        const selectedEmp = employees.find(emp => emp._id === selectedEmployeeForDept);
+                        return selectedEmp ? (
+                          <div className="text-sm text-green-700">
+                            <p><strong>Name:</strong> {selectedEmp.name}</p>
+                            <p><strong>Email:</strong> {selectedEmp.email}</p>
+                            <p><strong>Phone:</strong> {selectedEmp.phone}</p>
+                            <p><strong>Current Department:</strong> {
+                              selectedEmp.department 
+                                ? departments.find(dept => dept._id === selectedEmp.department)?.name || "Unknown"
+                                : "None"
+                            }</p>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex justify-end space-x-3 mt-4">
+                  <button
+                    className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300"
+                    onClick={() => {
+                      setIsAddingEmployeeToDept(false);
+                      setSelectedEmployeeForDept("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50 transition duration-300"
+                    onClick={handleAddEmployeeToDepartment}
+                    disabled={isLoading || !selectedEmployeeForDept || getAvailableEmployees().length === 0}
+                  >
+                    {isLoading ? "Assigning..." : "Assign to Department"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+              {/* Employees Table */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border-collapse">
+                  <thead className="bg-blue-100">
+                    <tr>
+                      <th className="py-2 px-3 border-b text-left text-sm font-medium text-green-800">Name</th>
+                      <th className="py-2 px-3 border-b text-left text-sm font-medium text-green-800">Username</th>
+                      <th className="py-2 px-3 border-b text-left text-sm font-medium text-green-800">Email</th>
+                      <th className="py-2 px-3 border-b text-left text-sm font-medium text-green-800">Phone</th>
+                      <th className="py-2 px-3 border-b text-left text-sm font-medium text-green-800">Status</th>
+                      <th className="py-2 px-3 border-b text-left text-sm font-medium text-green-800">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {departmentEmployees.length > 0 ? (
+                      departmentEmployees.map((employee, index) => (
+                        <tr key={employee._id} className={index % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                          <td className="py-2 px-3 border-b">{employee.name}</td>
+                          <td className="py-2 px-3 border-b">{employee.username}</td>
+                          <td className="py-2 px-3 border-b">{employee.email}</td>
+                          <td className="py-2 px-3 border-b">{employee.phone}</td>
+                          <td className="py-2 px-3 border-b">
+                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                              employee.status === 'pending'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : employee.status === 'approved'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {employee.status || 'active'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 border-b">
+                            <button
+                              className="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-2 rounded text-xs transition duration-300"
+                              onClick={() => handleRemoveFromDepartment(employee._id)}
+                              title="Remove from Department"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="6" className="py-4 text-center text-gray-500">
+                          No employees found in this department.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300"
+                onClick={() => setIsDepartmentDetailsModalOpen(false)}
+              >
+                Close
               </button>
             </div>
           </div>
