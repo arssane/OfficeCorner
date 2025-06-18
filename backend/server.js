@@ -1,3 +1,4 @@
+// server.js - No changes needed here, as department routes are already in place
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -10,6 +11,7 @@ import taskRoutes from './routes/task.js';
 import attendanceRoutes from './routes/attendance.js';
 import analyticsRoutes from './routes/analytics.js';
 import eventRoutes from './routes/event.js';
+import departmentRoutes from './routes/department.js'; // Already imported
 import Event from './entities/Event.js';
 import User from './entities/User.js';
 import { Server } from 'socket.io';
@@ -119,6 +121,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/department', departmentRoutes);
 
 // Test event-related endpoint
 app.get('/api/test/events', async (req, res) => {

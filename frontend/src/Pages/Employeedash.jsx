@@ -16,9 +16,10 @@ const EmployeeDashboard = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // State for sidebar toggle
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
-  // --- Attendance State (from Employeedash1.jsx) ---
+  // Attendance State
   const [attendanceHistory, setAttendanceHistory] = useState([
     { date: 'Mar 21, 2025', timeIn: '08:52 AM', timeOut: '05:07 PM', status: 'Present' },
     { date: 'Mar 20, 2025', timeIn: '09:05 AM', timeOut: '05:15 PM', status: 'Present' },
@@ -26,9 +27,8 @@ const EmployeeDashboard = () => {
     { date: 'Mar 18, 2025', timeIn: '-', timeOut: '-', status: 'Vacation' },
     { date: 'Mar 17, 2025', timeIn: '08:59 AM', timeOut: '04:58 PM', status: 'Present' },
   ]);
-  // --- End Attendance State ---
 
-  // Sample events data (from Employeedash1.jsx)
+  // Sample events data
   const events = [
     { id: 1, title: 'Team Meeting', date: 'Mar 22, 2025', time: '10:00 AM - 11:00 AM', location: 'Conference Room A' },
     { id: 2, title: 'Project Kickoff', date: 'Mar 24, 2025', time: '02:00 PM - 03:30 PM', location: 'Main Office' },
@@ -37,7 +37,7 @@ const EmployeeDashboard = () => {
     { id: 5, title: 'Training Session', date: 'Mar 28, 2025', time: '09:00 AM - 12:00 PM', location: 'Training Room' },
   ];
 
-  // Define fallback data outside of the functions but within component scope
+  // Fallback employee data
   const fallbackEmployee = {
     id: "fallback-employee-id",
     name: "Employee",
@@ -46,11 +46,11 @@ const EmployeeDashboard = () => {
     position: "Staff"
   };
 
-  // --- CRITICAL FIX PART 1: Initialize currentEmployee from localStorage immediately ---
+  // Initialize currentEmployee with better error handling
   const [currentEmployee, setCurrentEmployee] = useState(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
         const parsedUser = JSON.parse(storedUser);
         const displayName = (parsedUser.name && parsedUser.name !== 'Employee') ? parsedUser.name : (parsedUser.username || 'Employee');
         return {
@@ -59,68 +59,89 @@ const EmployeeDashboard = () => {
           email: parsedUser.email,
           department: parsedUser.department || 'General',
           position: parsedUser.position || 'Staff',
-          username: parsedUser.username
+          username: parsedUser.username,
+          status: parsedUser.status
         };
-      } catch (e) {
-        console.error("Failed to parse user from localStorage on init:", e);
-        return null;
       }
+    } catch (e) {
+      console.error("Failed to parse user from localStorage:", e);
     }
     return null;
   });
-  // --- END CRITICAL FIX PART 1 ---
+
+  // Check authentication status
+  const checkAuthStatus = () => {
+    const token = localStorage.getItem('token');
+    const user = localStorage.getItem('user');
+    
+    if (!token || !user) {
+      console.log('No authentication found, redirecting to login');
+      setIsLoggedIn(false);
+      setAuthChecked(true);
+      navigate('/login');
+      return false;
+    }
+
+    try {
+      const parsedUser = JSON.parse(user);
+      
+      // Check if user status is pending
+      if (parsedUser.status === 'pending') {
+        console.log('User status is pending, redirecting to pending page');
+        navigate('/employee-pending');
+        return false;
+      }
+
+      setIsLoggedIn(true);
+      setAuthChecked(true);
+      return true;
+    } catch (e) {
+      console.error('Error parsing user data:', e);
+      setIsLoggedIn(false);
+      setAuthChecked(true);
+      navigate('/login');
+      return false;
+    }
+  };
 
   const toggleProfileDropdown = () => setProfileDropdownOpen(prev => !prev);
   const closeProfileDropdown = () => setProfileDropdownOpen(false);
+  const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(prev => !prev);
-  };
-
-  // --- Updated handleLogout (from Employeedash1.jsx for full clear) ---
   const handleLogout = (e) => {
     e.preventDefault();
     console.log("Logout clicked");
-    localStorage.clear(); // Clear all stored authentication data
+    localStorage.clear();
     setIsLoggedIn(false);
     setCurrentEmployee(null);
     setTasks([]);
-    setAttendanceHistory([]); // Clear attendance history on logout
-    navigate("/login"); // Use navigate for routing
+    setAttendanceHistory([]);
+    navigate("/login");
   };
-  // --- End Updated handleLogout ---
 
-  // Get the API base URL (from Employeedash1.jsx)
+  // Get API configuration
   const getApiBaseUrl = () => {
     return localStorage.getItem("apiBaseUrl") || "http://localhost:5000/api";
   };
 
-  // Get the task endpoint (from Employeedash1.jsx)
   const getTaskEndpoint = () => {
     const storedEndpoint = localStorage.getItem("taskEndpoint");
     if (storedEndpoint) return storedEndpoint;
     const baseUrl = getApiBaseUrl();
-    return `${baseUrl}/tasks`; // Default
+    return `${baseUrl}/tasks`;
   };
 
-  // Get the employee profile endpoint (from Employeedash1.jsx - though not directly used in the call, good for clarity)
-  const getEmployeeProfileEndpoint = () => {
-    const storedBaseUrl = getApiBaseUrl();
-    return `${storedBaseUrl}/employee/profile`;
-  };
-
-  // --- CRITICAL FIX PART 2: Ensure fetchEmployeeProfile updates state correctly and fallback is conditional ---
+  // Enhanced profile fetching with better error handling
   const fetchEmployeeProfile = async () => {
+    if (!checkAuthStatus()) return;
+
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
+      
       if (!token) {
-        console.warn("Authentication token not found. Using fallback employee data.");
-        if (!currentEmployee) {
-          setCurrentEmployee(fallbackEmployee);
-        }
-        setLoading(false);
-        setIsLoggedIn(false);
+        console.warn("No authentication token found");
+        navigate('/login');
         return;
       }
 
@@ -135,8 +156,7 @@ const EmployeeDashboard = () => {
 
       let success = false;
       let fetchedUserData = null;
-      // Declare successfulEndpoint here to be accessible outside the loop
-      let successfulEndpoint = ''; // <-- ADD THIS LINE
+      let successfulEndpoint = '';
 
       for (const endpoint of possibleEndpoints) {
         try {
@@ -149,20 +169,20 @@ const EmployeeDashboard = () => {
               'Cache-Control': 'no-cache',
               'Pragma': 'no-cache'
             },
-            timeout: 5000
+            timeout: 10000
           });
 
           if (response.status >= 200 && response.status < 300 && response.data) {
             console.log(`Success with profile endpoint: ${endpoint}`);
             fetchedUserData = response.data.user || response.data;
             success = true;
-            successfulEndpoint = endpoint; // <-- ADD THIS LINE to store the successful endpoint
+            successfulEndpoint = endpoint;
             break;
           }
         } catch (error) {
           console.log(`Failed with profile endpoint ${endpoint}:`, error.message);
-          if (axios.isAxiosError(error) && error.response && error.response.status === 401) {
-            console.error("Unauthorized: Token might be invalid or expired. Logging out.");
+          if (axios.isAxiosError(error) && error.response?.status === 401) {
+            console.error("Unauthorized: Token invalid or expired");
             handleLogout(new Event('click'));
             return;
           }
@@ -171,17 +191,30 @@ const EmployeeDashboard = () => {
       }
 
       if (success && fetchedUserData) {
-        const displayedName = (fetchedUserData.name && fetchedUserData.name !== 'Employee') ? fetchedUserData.name : (fetchedUserData.username || 'Employee');
+        // Check if user status is still pending
+        if (fetchedUserData.status === 'pending') {
+          console.log('User status is still pending');
+          navigate('/employee-pending');
+          return;
+        }
 
-        setCurrentEmployee({
+        const displayedName = (fetchedUserData.name && fetchedUserData.name !== 'Employee') 
+          ? fetchedUserData.name 
+          : (fetchedUserData.username || 'Employee');
+
+        const employeeData = {
           id: fetchedUserData.id || fetchedUserData._id,
           name: displayedName,
           email: fetchedUserData.email,
           department: fetchedUserData.department || 'General',
           position: fetchedUserData.position || 'Staff',
-          username: fetchedUserData.username
-        });
+          username: fetchedUserData.username,
+          status: fetchedUserData.status
+        };
 
+        setCurrentEmployee(employeeData);
+
+        // Update localStorage with fresh data
         localStorage.setItem('user', JSON.stringify({
           id: fetchedUserData.id || fetchedUserData._id,
           _id: fetchedUserData._id || fetchedUserData.id,
@@ -202,68 +235,66 @@ const EmployeeDashboard = () => {
         localStorage.setItem('employeeEmail', fetchedUserData.email);
         localStorage.setItem('employeeId', fetchedUserData.id || fetchedUserData._id);
         localStorage.setItem('employeePosition', fetchedUserData.position || 'Staff');
-        // Use successfulEndpoint here
-        localStorage.setItem("profileEndpoint", successfulEndpoint); // <-- MODIFIED LINE
+        localStorage.setItem("profileEndpoint", successfulEndpoint);
+        
         setIsLoggedIn(true);
         setLastFetchTime(new Date());
+        setError(null);
       } else {
-        console.warn("All profile endpoints failed. Using fallback employee data.");
-        if (!currentEmployee) {
-          setCurrentEmployee(fallbackEmployee);
-        }
-        setIsLoggedIn(false);
+        console.warn("All profile endpoints failed");
+        setError("Failed to fetch profile information");
+        // Don't use fallback for authenticated users - redirect to login instead
+        navigate('/login');
       }
 
     } catch (err) {
-      console.error("Error fetching employee profile outside axios calls:", err);
-      if (!currentEmployee) {
-        setCurrentEmployee(fallbackEmployee);
-      }
-      setIsLoggedIn(false);
+      console.error("Error fetching employee profile:", err);
+      setError("Failed to fetch profile information");
+      navigate('/login');
     } finally {
       setLoading(false);
     }
   };
-  // --- END CRITICAL FIX PART 2 ---
 
-  // Function to format date for display
+  // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
       const options = { year: 'numeric', month: 'long', day: 'numeric' };
       return new Date(dateString).toLocaleDateString(undefined, options);
     } catch (e) {
-      return dateString; // Return original string if parsing fails
+      return dateString;
     }
   };
 
-  // --- Attendance Functions (from Employeedash1.jsx) ---
-  // Placeholder for handleLocalAttendanceFallback - you might want to implement actual local storage logic here
+  // Attendance functions
   const handleLocalAttendanceFallback = () => {
-    console.log("Falling back to local attendance recording (not implemented fully).");
+    console.log("Falling back to local attendance recording");
     alert("Could not connect to server to record attendance. Please try again later.");
   };
 
   const handleManualAttendance = async () => {
+    if (!checkAuthStatus()) return;
+
     try {
-      console.log("=== Starting attendance recording ===");
+      console.log("Starting attendance recording");
       const token = localStorage.getItem("token");
+      
       if (!token) {
-        console.error("No authentication token found");
         alert("Authentication token not found. Please log in again.");
+        navigate('/login');
         return;
       }
 
-      const baseUrl = localStorage.getItem("apiBaseUrl") || "http://localhost:5000/api";
+      const baseUrl = getApiBaseUrl();
       const attendanceEndpoint = `${baseUrl}/attendance/record`;
 
-      const employeeIdFromCurrent = currentEmployee?.id;
-      const employeeIdFromStorage = localStorage.getItem("employeeId");
-      const employeeId = employeeIdFromCurrent || employeeIdFromStorage;
+      const employeeId = currentEmployee?.id || localStorage.getItem("employeeId");
 
       if (!employeeId) {
         console.error("No employee ID found");
         alert("Employee ID not found. Please log in again.");
+        navigate('/login');
         return;
       }
 
@@ -282,19 +313,20 @@ const EmployeeDashboard = () => {
       });
 
       if (response.data.success) {
-        console.log("✅ Attendance recorded successfully");
-        if (typeof fetchAttendanceHistory === 'function') {
-          await fetchAttendanceHistory(employeeId);
-        }
+        console.log("Attendance recorded successfully");
+        await fetchAttendanceHistory(employeeId);
         alert(`Success: ${response.data.message}`);
       } else {
-        console.error("❌ Server returned unsuccessful response:", response.data);
+        console.error("Server returned unsuccessful response:", response.data);
         alert(response.data.message || "Failed to record attendance");
       }
 
     } catch (error) {
-      console.error("=== ERROR RECORDING ATTENDANCE ===");
-      if (error.response) {
+      console.error("Error recording attendance:", error);
+      if (error.response?.status === 401) {
+        alert("Session expired. Please log in again.");
+        handleLogout(new Event('click'));
+      } else if (error.response) {
         const errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
         alert(`Failed to record attendance: ${errorMessage}`);
       } else if (error.request) {
@@ -305,27 +337,26 @@ const EmployeeDashboard = () => {
       }
     } finally {
       setLoading(false);
-      console.log("=== Attendance recording process completed ===");
     }
   };
 
   const fetchAttendanceHistory = async (employeeId) => {
+    if (!checkAuthStatus()) return;
+
     try {
       const token = localStorage.getItem("token");
-      if (!token) {
-        console.warn("Authentication token not found");
-        return;
-      }
+      if (!token) return;
 
       setLoading(true);
-      const baseUrl = localStorage.getItem("apiBaseUrl") || "http://localhost:5000/api";
+      const baseUrl = getApiBaseUrl();
       const historyEndpoint = `${baseUrl}/attendance/employee/${employeeId}`;
 
       const response = await axios.get(historyEndpoint, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json'
-        }
+        },
+        timeout: 10000
       });
 
       if (response.data.success) {
@@ -336,19 +367,23 @@ const EmployeeDashboard = () => {
       }
     } catch (error) {
       console.error("Error fetching attendance history:", error);
+      if (error.response?.status === 401) {
+        console.error("Unauthorized access to attendance history");
+        handleLogout(new Event('click'));
+      }
     } finally {
       setLoading(false);
     }
   };
-  // --- End Attendance Functions ---
 
-  // --- Enhanced Task Fetching (from Employeedash1.jsx) ---
+  // Enhanced task fetching
   const fetchEmployeeTasks = async (employeeId, forceRefresh = false) => {
+    if (!checkAuthStatus()) return;
+
     try {
       const token = localStorage.getItem("token");
       if (!token) {
         console.warn("Authentication token not found");
-        if (!currentEmployee) setCurrentEmployee(fallbackEmployee);
         return;
       }
 
@@ -367,7 +402,7 @@ const EmployeeDashboard = () => {
           'Pragma': 'no-cache',
           'Expires': '0'
         },
-        timeout: 10000,
+        timeout: 15000,
         validateStatus: function (status) {
           return status < 500;
         }
@@ -375,6 +410,7 @@ const EmployeeDashboard = () => {
 
       if (response.status >= 200 && response.status < 300) {
         let allTasks = [];
+        
         if (Array.isArray(response.data)) {
           allTasks = response.data;
         } else if (response.data?.tasks && Array.isArray(response.data.tasks)) {
@@ -386,6 +422,7 @@ const EmployeeDashboard = () => {
           allTasks = possibleTasks || [];
         }
 
+        // Filter out deleted tasks
         const activeTasks = allTasks.filter(task => {
           return !task.deleted &&
                  !task.isDeleted &&
@@ -399,45 +436,46 @@ const EmployeeDashboard = () => {
           return;
         }
 
+        // Filter tasks for current employee
         if (!employeeId || employeeId === "fallback-employee-id") {
           setTasks(activeTasks);
-          setLastFetchTime(new Date().toLocaleTimeString());
-          return;
-        }
-
-        const employeeTasks = activeTasks.filter(task => {
-          const taskAssignedTo = task.assignedTo || task.assigned_to || task.employeeId ||
-                               task.employee_id || task.employee?.id || task.employee?._id;
-          if (!taskAssignedTo) return true;
-          return taskAssignedTo.toString() === employeeId.toString();
-        });
-
-        if (employeeTasks.length > 0) {
-          setTasks(employeeTasks);
         } else {
-          setTasks(activeTasks);
+          const employeeTasks = activeTasks.filter(task => {
+            const taskAssignedTo = task.assignedTo || task.assigned_to || task.employeeId ||
+                                 task.employee_id || task.employee?.id || task.employee?._id;
+            if (!taskAssignedTo) return true;
+            return taskAssignedTo.toString() === employeeId.toString();
+          });
+
+          setTasks(employeeTasks.length > 0 ? employeeTasks : activeTasks);
         }
 
         setLastFetchTime(new Date().toLocaleTimeString());
         setError(null);
 
+      } else if (response.status === 401) {
+        setError("Authentication failed - please log in again");
+        handleLogout(new Event('click'));
       } else {
         setError(`Failed to fetch tasks: ${response.status}`);
         setTasks([]);
       }
     } catch (err) {
       console.error("Error fetching employee tasks:", err);
+      
       if (err.code === 'ECONNABORTED') {
         setError("Request timeout - please try again");
       } else if (err.response?.status === 401) {
         setError("Authentication failed - please log in again");
-        handleLogout();
+        handleLogout(new Event('click'));
       } else if (err.response?.status >= 500) {
         setError("Server error - please try again later");
       } else {
         setError("Failed to fetch tasks - check your connection");
       }
+      
       if (err.response?.status !== 401) {
+        // Keep existing tasks on non-auth errors
       } else {
         setTasks([]);
       }
@@ -445,9 +483,8 @@ const EmployeeDashboard = () => {
       setLoading(false);
     }
   };
-  // --- End Enhanced Task Fetching ---
 
-  // Manual refresh function with user feedback (from Employeedash1.jsx)
+  // Manual refresh function
   const handleManualRefresh = async () => {
     if (currentEmployee) {
       console.log("Manual refresh triggered");
@@ -455,58 +492,15 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // --- Updated useEffect hooks for data fetching (from Employeedash1.jsx) ---
-  useEffect(() => {
-    fetchEmployeeProfile();
-
-    const refreshInterval = setInterval(() => {
-      if (currentEmployee) {
-        fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
-        fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
-      }
-    }, 120000); // Refresh every 2 minutes
-
-    return () => clearInterval(refreshInterval);
-  }, []);
-
-  useEffect(() => {
-    if (currentEmployee) {
-      fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
-      fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
-    }
-  }, [currentEmployee]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && currentEmployee && activeTab === 'tasks') {
-        fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [currentEmployee, activeTab]);
-  // --- End Updated useEffect hooks ---
-
-
-  const handleOpenModal = (task) => {
-    setSelectedTask(task);
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedTask(null);
-  };
-
-  // --- Updated updateTaskStatus (from Employeedash1.jsx for robustness) ---
+  // Update task status
   const updateTaskStatus = async (taskId, newStatus) => {
+    if (!checkAuthStatus()) return;
+
     try {
       const token = localStorage.getItem("token");
-      const userRole = localStorage.getItem("userRole");
-
       if (!token) {
         alert("Authentication token not found. Please log in first.");
+        navigate('/login');
         return;
       }
 
@@ -524,6 +518,7 @@ const EmployeeDashboard = () => {
         updatedAt: new Date().toISOString()
       };
 
+      // Optimistically update the UI
       setTasks(prevTasks =>
         prevTasks.map(task => {
           const taskMatch = (task.id && task.id === taskId) || (task._id && task._id === taskId);
@@ -534,19 +529,11 @@ const EmployeeDashboard = () => {
       );
 
       const baseEndpoint = getTaskEndpoint();
-
       const possibleEndpoints = [
         `${baseEndpoint}/${taskId}`,
         `${baseEndpoint}/update/${taskId}`,
         `${baseEndpoint}/${taskId}/status`,
       ];
-
-      if (userRole === 'Administrator') {
-        possibleEndpoints.unshift(
-          `${baseEndpoint}/admin/${taskId}`,
-          `${baseEndpoint}/admin/update/${taskId}`
-        );
-      }
 
       let updateSuccess = false;
       let lastError = null;
@@ -584,56 +571,59 @@ const EmployeeDashboard = () => {
       }
 
       if (!updateSuccess) {
-        try {
-          const response = await axios.post(`${baseEndpoint}/updateStatus`, { taskId: taskId, status: newStatus }, { headers: { Authorization: `Bearer ${token}`, 'Accept': 'application/json', 'Content-Type': 'application/json' }, timeout: 10000 });
-          if (response.status >= 200 && response.status < 300) {
-            updateSuccess = true;
-            alert(`Task marked as ${newStatus.replace('-', ' ')}`);
-          }
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      if (!updateSuccess) {
         throw lastError || new Error("All update methods failed");
       }
     } catch (err) {
       console.error("Error updating task:", err);
-      const originalTask = tasks.find(task => (task.id && task.id === taskId) || (task._id && task._id === taskId) );
+      
+      // Revert optimistic update
+      const originalTask = tasks.find(task => (task.id && task.id === taskId) || (task._id && task._id === taskId));
       if (originalTask) {
         setTasks(prevTasks => prevTasks.map(task => {
           const taskMatch = (task.id && task.id === taskId) || (task._id && task._id === taskId);
           return taskMatch ? originalTask : task;
-        })
-        );
+        }));
       }
+
       if (err.response?.status === 403) {
         alert("You don't have permission to update this task.");
       } else if (err.response?.status === 404) {
         alert("Task update endpoint not found. Please contact your administrator.");
       } else if (err.response?.status === 401) {
         alert("Session expired. Please log in again.");
-        localStorage.removeItem("token");
-        window.location.href = '/login';
+        handleLogout(new Event('click'));
       } else {
         alert(`Failed to update task: ${err.response?.data?.message || err.message}`);
       }
     }
   };
-  // --- End Updated updateTaskStatus ---
 
+  // Modal handlers
+  const handleOpenModal = (task) => {
+    setSelectedTask(task);
+    setIsModalOpen(true);
+  };
 
-  // Sort tasks: Incomplete first, then by deadline ascending
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedTask(null);
+  };
+
+  // Sort tasks: Incomplete first, then by deadline
   const sortedTasks = [...tasks].sort((a, b) => {
     if (a.status !== 'Completed' && b.status === 'Completed') return -1;
     if (a.status === 'Completed' && b.status !== 'Completed') return 1;
     return new Date(a.deadline) - new Date(b.deadline);
   });
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const today = new Date().toLocaleDateString('en-US', { 
+    weekday: 'long', 
+    month: 'long', 
+    day: 'numeric', 
+    year: 'numeric' 
+  });
 
-  // Generate calendar days grid (from Employeedash1.jsx)
+  // Generate calendar days
   const generateCalendarDays = () => {
     const days = [];
     const eventDays = events.map(event => event.date);
@@ -643,16 +633,24 @@ const EmployeeDashboard = () => {
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const firstDay = new Date(currentYear, currentMonth, 1).getDay();
 
+    // Empty cells for days before month starts
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="h-12"></div>);
     }
 
+    // Days of the month
     for (let i = 1; i <= daysInMonth; i++) {
       const dateStr = `Mar ${i}, 2025`;
       const hasEvent = eventDays.includes(dateStr);
       const isToday = i === currentDate.getDate();
+      
       days.push(
-        <div key={i} className={`h-12 flex flex-col justify-center items-center rounded-md cursor-pointer hover:bg-gray-100 ${isToday ? 'bg-blue-100 font-bold text-blue-600' : ''} ${hasEvent ? 'border-2 border-blue-400' : ''} `} >
+        <div 
+          key={i} 
+          className={`h-12 flex flex-col justify-center items-center rounded-md cursor-pointer hover:bg-gray-100 ${
+            isToday ? 'bg-blue-100 font-bold text-blue-600' : ''
+          } ${hasEvent ? 'border-2 border-blue-400' : ''}`}
+        >
           <span>{i}</span>
           {hasEvent && <div className="w-2 h-2 bg-blue-500 rounded-full mt-1"></div>}
         </div>
@@ -661,7 +659,49 @@ const EmployeeDashboard = () => {
     return days;
   };
 
-  if (loading && !currentEmployee) {
+  // Effect hooks
+  useEffect(() => {
+    if (!authChecked) {
+      checkAuthStatus();
+    }
+  }, [authChecked]);
+
+  useEffect(() => {
+    if (authChecked && isLoggedIn) {
+      fetchEmployeeProfile();
+
+      // Set up refresh interval
+      const refreshInterval = setInterval(() => {
+        if (currentEmployee) {
+          fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
+          fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
+        }
+      }, 120000); // Refresh every 2 minutes
+
+      return () => clearInterval(refreshInterval);
+    }
+  }, [authChecked, isLoggedIn]);
+
+  useEffect(() => {
+    if (currentEmployee && isLoggedIn) {
+      fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
+      fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
+    }
+  }, [currentEmployee]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && currentEmployee && activeTab === 'tasks' && isLoggedIn) {
+        fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentEmployee, activeTab, isLoggedIn]);
+
+  // Show loading screen while checking auth
+  if (!authChecked || (loading && !currentEmployee)) {
     return (
       <div className="flex justify-center items-center h-screen bg-gray-100">
         <div className="text-xl text-green-700">Loading Dashboard...</div>
@@ -669,13 +709,20 @@ const EmployeeDashboard = () => {
     );
   }
 
+  // Don't render if not logged in (will be redirected)
+  if (!isLoggedIn) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" onClick={closeProfileDropdown}>
-      {/* Header (from Employeedash1.jsx) */}
+      {/* Header */}
       <header className="sticky top-0 z-10 bg-green-900 shadow-lg" onClick={e => e.stopPropagation()}>
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center cursor-pointer">
-            <h1 className="text-2xl text-white font-bold" onClick={() => window.location.href = "/"}>OfficeCorner</h1>
+            <h1 className="text-2xl text-white font-bold" onClick={() => window.location.href = "/"}>
+              OfficeCorner
+            </h1>
             <span className="ml-2 bg-green-700 text-xs text-blue-100 px-2 py-1 rounded-full">
               {(currentEmployee?.department || 'General').toUpperCase()}
             </span>
@@ -687,7 +734,10 @@ const EmployeeDashboard = () => {
             <span>{today}</span>
           </div>
           <div className="relative">
-            <button className="flex items-center space-x-2 bg-green-700 bg-opacity-50 text-white px-4 py-2 rounded-lg hover:bg-opacity-70 transition" onClick={toggleProfileDropdown} >
+            <button 
+              className="flex items-center space-x-2 bg-green-700 bg-opacity-50 text-white px-4 py-2 rounded-lg hover:bg-opacity-70 transition" 
+              onClick={toggleProfileDropdown}
+            >
               <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center font-medium">
                 {(currentEmployee?.name || 'Employee')[0]}
               </div>
@@ -701,9 +751,10 @@ const EmployeeDashboard = () => {
                 <div className="px-4 py-2 border-b">
                   <p className="text-sm font-medium text-gray-900">{currentEmployee?.name || 'Employee'}</p>
                   <p className="text-xs text-gray-500 truncate">{currentEmployee?.email || 'employee@example.com'}</p>
-                  <p className="text-xs text-gray-500 mt-1">{currentEmployee?.position || 'Staff'} - {currentEmployee?.department || 'General'}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {currentEmployee?.position || 'Staff'} - {currentEmployee?.department || 'General'}
+                  </p>
                 </div>
-                {/* Profile Link (from original Employeedash.jsx) */}
                 <Link to="/profile" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />

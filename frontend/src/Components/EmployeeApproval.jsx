@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const EmployeeApproval = ({ onBack }) => {
   const [pendingEmployees, setPendingEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchPendingEmployees();
@@ -22,14 +24,13 @@ const EmployeeApproval = ({ onBack }) => {
         }
       });
       
-      // Handle the correct response structure from admin.js
       setPendingEmployees(response.data.data || []);
       setError('');
     } catch (error) {
       console.error('Error fetching pending employees:', error);
       setError('Failed to fetch pending employees');
       
-      // Mock data for testing
+      // Mock data for testing in development if backend is not running
       setPendingEmployees([
         {
           _id: '1',
@@ -59,34 +60,45 @@ const EmployeeApproval = ({ onBack }) => {
     }
   };
 
-  // Fixed approval handler
   const handleApproveEmployee = async (employeeId) => {
     try {
-      const token = localStorage.getItem('token');
+      const adminToken = localStorage.getItem('token'); // Keep admin token safe
       
-      // Explicitly set status to 'approved'
       const response = await axios.put(
         `http://localhost:5000/api/admin/approve-employee/${employeeId}`, 
         { 
           status: 'approved',
-          action: 'approve' // Additional field to ensure correct action
+          action: 'approve'
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${adminToken}`,
             'Content-Type': 'application/json'
           }
         }
       );
       
-      console.log('Approval response:', response.data); // Debug log
+      console.log('Approval response:', response.data);
       
-      // Remove from pending list
-      setPendingEmployees(prev => prev.filter(emp => emp._id !== employeeId));
-      setSuccessMessage('Employee approved successfully!');
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(''), 3000);
+      if (response.data.success) {
+        setSuccessMessage('Employee approved successfully!');
+        
+        // Remove from pending list
+        setPendingEmployees(prev => prev.filter(emp => emp._id !== employeeId));
+
+        // Clear success message after 3 seconds
+        setTimeout(() => {
+          setSuccessMessage('');
+        }, 3000);
+        
+        // DO NOT redirect admin to employee dashboard
+        // DO NOT overwrite admin token with employee token
+        // The employee will get real-time notification and can login themselves
+        
+      } else {
+        setError('Failed to approve employee');
+        setTimeout(() => setError(''), 5000);
+      }
       
     } catch (error) {
       console.error('Error approving employee:', error);
@@ -95,27 +107,25 @@ const EmployeeApproval = ({ onBack }) => {
     }
   };
 
-  // Fixed rejection handler
   const handleRejectEmployee = async (employeeId) => {
     try {
-      const token = localStorage.getItem('token');
+      const adminToken = localStorage.getItem('token'); // Keep admin token safe
       
-      // Explicitly set status to 'rejected'
       const response = await axios.put(
         `http://localhost:5000/api/admin/approve-employee/${employeeId}`, 
         { 
           status: 'rejected',
-          action: 'reject' // Additional field to ensure correct action
+          action: 'reject'
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${adminToken}`,
             'Content-Type': 'application/json'
           }
         }
       );
       
-      console.log('Rejection response:', response.data); // Debug log
+      console.log('Rejection response:', response.data);
       
       // Remove from pending list
       setPendingEmployees(prev => prev.filter(emp => emp._id !== employeeId));
@@ -125,13 +135,13 @@ const EmployeeApproval = ({ onBack }) => {
       setTimeout(() => setSuccessMessage(''), 3000);
       
     } catch (error) {
-        if (error.response?.data?.statusCode === 'ACCOUNT_REJECTED') {
+      if (error.response?.data?.statusCode === 'ACCOUNT_REJECTED') {
         setError('❌ Your account has been rejected. Please contact the administrator.');
-        } else if (error.response?.data?.statusCode === 'ACCOUNT_PENDING') {
+      } else if (error.response?.data?.statusCode === 'ACCOUNT_PENDING') {
         setError('⏳ Your account is pending approval. Please wait for administrator approval.');
-        } else if (error.response?.data?.statusCode === 'ACCOUNT_INACTIVE') {
+      } else if (error.response?.data?.statusCode === 'ACCOUNT_INACTIVE') {
         setError('🚫 Your account is not active. Please contact the administrator.');
-        }
+      }
       console.error('Error rejecting employee:', error);
       setError(`Failed to reject employee: ${error.response?.data?.message || error.message}`);
       setTimeout(() => setError(''), 5000);
@@ -139,6 +149,7 @@ const EmployeeApproval = ({ onBack }) => {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',

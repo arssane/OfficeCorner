@@ -1,4 +1,4 @@
-// entities/User.js - Updated User model with Google auth support
+// entities/User.js - Updated User model with Google auth support and Department reference
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -50,6 +50,12 @@ const userSchema = new mongoose.Schema({
   address: {
     type: String,
     required: false
+  },
+  // NEW: Department reference
+  department: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    default: null
   },
   createdAt: {
     type: Date,

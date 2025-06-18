@@ -34,7 +34,12 @@ const LoginPage = () => {
   // Load the Google API script
   useEffect(() => {
     const loadGoogleScript = () => {
+      // Check if script already exists
       if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
+        // Script exists, just reinitialize
+        if (window.google && window.google.accounts) {
+          initializeGoogleSignIn();
+        }
         return;
       }
       
@@ -47,14 +52,26 @@ const LoginPage = () => {
       script.onload = initializeGoogleSignIn;
     };
 
-    loadGoogleScript();
+    loadGoogleScript(); 
     
     return () => {
       if (window.google && window.google.accounts) {
         window.google.accounts.id.cancel();
       }
     };
-  }, []);
+  }, []); // Keep empty dependency array
+
+  // Add a separate effect to reinitialize when component mounts
+  useEffect(() => {
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      if (window.google && window.google.accounts && document.getElementById('google-signin-button')) {
+        initializeGoogleSignIn();
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [showGoogleSignupForm]); // Reinitialize when returning from signup form
 
   // OTP Resend Timer Effect
   useEffect(() => {
@@ -70,22 +87,25 @@ const LoginPage = () => {
 
   const initializeGoogleSignIn = () => {
     if (window.google && window.google.accounts) {
+      const buttonElement = document.getElementById('google-signin-button');
+      if (!buttonElement) return; // Exit if button element doesn't exist
+      
+      // Clear any existing content
+      buttonElement.innerHTML = '';
+      
       window.google.accounts.id.initialize({
-        client_id: '208707733113-2s3kivojij1t7sotgj3bsu38sf62ofhf.apps.googleusercontent.com', // Replace with your actual client ID
+        client_id: '208707733113-2s3kivojij1t7sotgj3bsu38sf62ofhf.apps.googleusercontent.com',
         callback: handleGoogleResponse,
         auto_select: false,
         cancel_on_tap_outside: true
       });
       
-      window.google.accounts.id.renderButton(
-        document.getElementById('google-signin-button'),
-        { 
-          theme: 'outline', 
-          size: 'large',
-          width: '100%',
-          text: 'sign_in_with_google'
-        }
-      );
+      window.google.accounts.id.renderButton(buttonElement, { 
+        theme: 'outline', 
+        size: 'large',
+        width: '100%',
+        text: 'sign_in_with_google'
+      });
     }
   };
 
