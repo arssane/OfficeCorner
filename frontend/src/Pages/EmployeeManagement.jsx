@@ -14,6 +14,10 @@ const EmployeeManagement = () => {
   const [departmentEmployees, setDepartmentEmployees] = useState([]);
   const [isAddingEmployeeToDept, setIsAddingEmployeeToDept] = useState(false);
   const [selectedEmployeeForDept, setSelectedEmployeeForDept] = useState("");
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState("");
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+  const [managerSearchQuery, setManagerSearchQuery] = useState("");
+  const [showManagerDropdown, setShowManagerDropdown] = useState(false);
   const [apiBaseUrl] = useState("http://localhost:5000/api");
 
   const [newEmployee, setNewEmployee] = useState({
@@ -43,6 +47,37 @@ const EmployeeManagement = () => {
     fetchEmployees();
     fetchDepartments();
   }, [apiBaseUrl]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // Close dropdown when clicking outside
+      if (showEmployeeDropdown && !event.target.closest('.relative')) {
+        setShowEmployeeDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmployeeDropdown]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // Close dropdowns when clicking outside
+      if (showEmployeeDropdown && !event.target.closest('.employee-dropdown-container')) {
+        setShowEmployeeDropdown(false);
+      }
+      if (showManagerDropdown && !event.target.closest('.manager-dropdown-container')) {
+        setShowManagerDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmployeeDropdown, showManagerDropdown]);
 
   const getAvailableEmployees = () => {
     return employees.filter(emp => emp.department !== selectedDepartment._id);
@@ -326,6 +361,66 @@ const EmployeeManagement = () => {
         setIsLoading(false);
       }
     }
+  };
+
+  const getFilteredAvailableEmployees = () => {
+    const availableEmployees = employees.filter(emp => emp.department !== selectedDepartment._id);
+    
+    if (!employeeSearchQuery.trim()) {
+      return availableEmployees;
+    }
+    
+    return availableEmployees.filter(employee =>
+      employee.name.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
+      employee.username.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
+      employee.email.toLowerCase().includes(employeeSearchQuery.toLowerCase())
+    );
+  };
+
+  const getFilteredManagers = () => {
+    const managers = employees.filter(emp => emp.role === 'Employee' || emp.role === 'Administrator');
+    
+    if (!managerSearchQuery.trim()) {
+      return managers;
+    }
+    
+    return managers.filter(manager =>
+      manager.name.toLowerCase().includes(managerSearchQuery.toLowerCase()) ||
+      manager.username.toLowerCase().includes(managerSearchQuery.toLowerCase()) ||
+      manager.email.toLowerCase().includes(managerSearchQuery.toLowerCase())
+    );
+  };
+
+  const handleManagerSelect = (manager) => {
+    if (currentEditingDepartment) {
+      setCurrentEditingDepartment({...currentEditingDepartment, manager: manager._id});
+    } else {
+      setNewDepartment({...newDepartment, manager: manager._id});
+    }
+    setManagerSearchQuery(manager.name);
+    setShowManagerDropdown(false);
+  };
+
+  const clearManagerSearch = () => {
+    setManagerSearchQuery("");
+    if (currentEditingDepartment) {
+      setCurrentEditingDepartment({...currentEditingDepartment, manager: ""});
+    } else {
+      setNewDepartment({...newDepartment, manager: ""});
+    }
+    setShowManagerDropdown(false);
+  };
+
+  const handleEmployeeSelect = (employee) => {
+    setSelectedEmployeeForDept(employee._id);
+    setEmployeeSearchQuery(employee.name);
+    setShowEmployeeDropdown(false);
+  };
+
+  const clearEmployeeSearch = () => {
+    setEmployeeSearchQuery("");
+    setSelectedEmployeeForDept("");
+    setShowEmployeeDropdown(false);
   };
 
   const handleEditEmployee = async () => {
@@ -870,21 +965,90 @@ const EmployeeManagement = () => {
                 ></textarea>
               </div>
 
-              <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">Manager (Employee)</label>
-                <select
-                  name="manager"
-                  value={currentEditingDepartment ? (currentEditingDepartment.manager?._id || currentEditingDepartment.manager || "") : newDepartment.manager}
-                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, manager: e.target.value}) : handleDepartmentChange(e)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200 bg-white"
-                >
-                  <option value="">Select Manager (Optional)</option>
-                  {employees.filter(emp => emp.role === 'Employee' || emp.role === 'Administrator').map((emp) => (
-                    <option key={emp._id} value={emp._id}>
-                      {emp.name} ({emp.username})
-                    </option>
-                  ))}
-                </select>
+              <div className="manager-dropdown-container relative">
+                <label className="block text-gray-700 text-sm font-semibold mb-2">
+                  Search & Select Manager (Optional)
+                </label>
+                
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search by name, username, or email..."
+                    value={managerSearchQuery}
+                    onChange={(e) => {
+                      setManagerSearchQuery(e.target.value);
+                      setShowManagerDropdown(true);
+                      if (!e.target.value.trim()) {
+                        if (currentEditingDepartment) {
+                          setCurrentEditingDepartment({...currentEditingDepartment, manager: ""});
+                        } else {
+                          setNewDepartment({...newDepartment, manager: ""});
+                        }
+                      }
+                    }}
+                    onFocus={() => setShowManagerDropdown(true)}
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                  />
+                  
+                  {managerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={clearManagerSearch}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl"
+                    >
+                      ×
+                    </button>
+                  )}
+                  
+                  {showManagerDropdown && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {getFilteredManagers().length > 0 ? (
+                        getFilteredManagers().map((manager) => (
+                          <div
+                            key={manager._id}
+                            onClick={() => handleManagerSelect(manager)}
+                            className="px-3 py-2 hover:bg-emerald-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium text-gray-900">{manager.name}</span>
+                              <span className="text-sm text-gray-600">
+                                @{manager.username} • {manager.email}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                Role: {manager.role} • Current Dept: {
+                                  manager.department 
+                                    ? departments.find(dept => dept._id === manager.department)?.name || "Unknown"
+                                    : "None"
+                                }
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-gray-500 text-center">
+                          {managerSearchQuery ? "No managers found matching your search" : "No available managers"}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {(currentEditingDepartment?.manager || newDepartment.manager) && (
+                  <div className="bg-emerald-50 p-3 rounded-lg mt-2">
+                    <h5 className="font-semibold text-emerald-800 mb-2">Selected Manager:</h5>
+                    {(() => {
+                      const selectedManagerId = currentEditingDepartment?.manager || newDepartment.manager;
+                      const selectedManager = employees.find(emp => emp._id === selectedManagerId);
+                      return selectedManager ? (
+                        <div className="text-sm text-emerald-700">
+                          <p><strong>Name:</strong> {selectedManager.name}</p>
+                          <p><strong>Email:</strong> {selectedManager.email}</p>
+                          <p><strong>Role:</strong> {selectedManager.role}</p>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -999,23 +1163,73 @@ const EmployeeManagement = () => {
               <div className="bg-green-50 p-4 rounded-lg mb-4">
                 <h4 className="text-lg font-semibold mb-3">Add Existing Employee to {selectedDepartment.name}</h4>
                 <div className="space-y-4">
-                  <div>
+                  <div className="relative">
                     <label className="block text-gray-700 text-sm font-semibold mb-2">
-                      Select Employee
+                      Search & Select Employee
                     </label>
-                    <select
-                      value={selectedEmployeeForDept}
-                      onChange={(e) => setSelectedEmployeeForDept(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
-                    >
-                      <option value="">Choose an employee...</option>
-                      {getAvailableEmployees().map((employee) => (
-                        <option key={employee._id} value={employee._id}>
-                          {employee.name} ({employee.username}) - {employee.email}
-                        </option>
-                      ))}
-                    </select>
-                    {getAvailableEmployees().length === 0 && (
+                    
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search by name, username, or email..."
+                        value={employeeSearchQuery}
+                        onChange={(e) => {
+                          setEmployeeSearchQuery(e.target.value);
+                          setShowEmployeeDropdown(true);
+                          if (!e.target.value.trim()) {
+                            setSelectedEmployeeForDept("");
+                          }
+                        }}
+                        onFocus={() => setShowEmployeeDropdown(true)}
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                      />
+                      
+                      {/* Clear button */}
+                      {employeeSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={clearEmployeeSearch}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          ×
+                        </button>
+                      )}
+                      
+                      {/* Dropdown with search results */}
+                      {showEmployeeDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          {getFilteredAvailableEmployees().length > 0 ? (
+                            getFilteredAvailableEmployees().map((employee) => (
+                              <div
+                                key={employee._id}
+                                onClick={() => handleEmployeeSelect(employee)}
+                                className="px-3 py-2 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                              >
+                                <div className="flex flex-col">
+                                  <span className="font-medium text-gray-900">{employee.name}</span>
+                                  <span className="text-sm text-gray-600">
+                                    @{employee.username} • {employee.email}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    Current Dept: {
+                                      employee.department 
+                                        ? departments.find(dept => dept._id === employee.department)?.name || "Unknown"
+                                        : "None"
+                                    }
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="px-3 py-2 text-gray-500 text-center">
+                              {employeeSearchQuery ? "No employees found matching your search" : "No available employees"}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {getFilteredAvailableEmployees().length === 0 && !employeeSearchQuery && (
                       <p className="text-sm text-gray-500 mt-2">
                         No available employees to assign. All employees are already assigned to departments.
                       </p>
@@ -1051,6 +1265,8 @@ const EmployeeManagement = () => {
                     onClick={() => {
                       setIsAddingEmployeeToDept(false);
                       setSelectedEmployeeForDept("");
+                      setEmployeeSearchQuery("");
+                      setShowEmployeeDropdown(false);
                     }}
                   >
                     Cancel
@@ -1058,7 +1274,7 @@ const EmployeeManagement = () => {
                   <button
                     className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50 transition duration-300"
                     onClick={handleAddEmployeeToDepartment}
-                    disabled={isLoading || !selectedEmployeeForDept || getAvailableEmployees().length === 0}
+                    disabled={isLoading || !selectedEmployeeForDept || getFilteredAvailableEmployees().length === 0}
                   >
                     {isLoading ? "Assigning..." : "Assign to Department"}
                   </button>

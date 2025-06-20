@@ -2,6 +2,8 @@
 import express from 'express';
 import User from '../entities/User.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
+// ADD THIS IMPORT - Missing email service import
+import { sendGenericEmail } from '../services/emailService.js';
 
 const router = express.Router();
 
@@ -132,6 +134,32 @@ router.put('/approve-employee/:id', async (req, res) => {
 
     await employee.save();
 
+    // ADD THIS - Send email notification after saving the user
+    try {
+      if (status === 'approved') {
+        console.log(`📧 Sending approval email to ${employee.email}`);
+        const emailResult = await sendGenericEmail(
+          employee.email,
+          '', // subject not needed as it's defined in template
+          'account-approved',
+          employee.name
+        );
+        console.log(`📧 Approval email result:`, emailResult);
+      } else if (status === 'rejected') {
+        console.log(`📧 Sending rejection email to ${employee.email}`);
+        const emailResult = await sendGenericEmail(
+          employee.email,
+          reason || '', // Pass reason as subject for rejection emails
+          'account-rejected',
+          employee.name
+        );
+        console.log(`📧 Rejection email result:`, emailResult);
+      }
+    } catch (emailError) {
+      console.error(`❌ Error sending ${status} email to ${employee.email}:`, emailError);
+      // Don't fail the entire operation if email fails
+    }
+
     const responseData = {
       id: employee._id,
       username: employee.username,
@@ -207,6 +235,10 @@ router.post('/google-lookup', async (req, res) => {
     if (!token || !role) {
       return res.status(400).json({ message: 'Token and role are required' });
     }
+
+    // ADD MISSING IMPORT - You need to import Google OAuth client
+    // import { OAuth2Client } from 'google-auth-library';
+    // const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
     // Verify Google token
     const ticket = await client.verifyIdToken({

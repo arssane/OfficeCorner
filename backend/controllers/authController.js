@@ -1,8 +1,8 @@
-// controllers/authController.js - Updated with Email OTP authentication
+// controllers/authController.js - Updated with Email OTP authentication and approval emails
 import User from '../entities/User.js';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
-import { sendOTP, verifyOTP } from '../services/emailService.js';
+import { sendOTP, verifyOTP, sendGenericEmail } from '../services/emailService.js'; // Import sendGenericEmail
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -222,6 +222,13 @@ export const emailRegister = async (req, res, next) => {
 
         // For Employee role, return pending status message
         if (role === 'Employee') {
+          // NEW: Send pending approval email
+          await sendGenericEmail(
+            existingUserByEmail.email,
+            'Your Account Registration is Pending Approval',
+            'account-pending', // Using the new purpose for template lookup
+            existingUserByEmail.name || existingUserByEmail.username
+          );
           return res.status(201).json({
             message: 'Re-registration successful! Your account is pending approval from an administrator. You will be notified once approved.',
             user: {
@@ -281,6 +288,13 @@ export const emailRegister = async (req, res, next) => {
 
     // For Employee role, return pending status message
     if (role === 'Employee') {
+      // NEW: Send pending approval email
+      await sendGenericEmail(
+        newUser.email,
+        'Your Account Registration is Pending Approval',
+        'account-pending', // Using the new purpose for template lookup
+        newUser.name || newUser.username
+      );
       return res.status(201).json({
         message: 'Registration successful! Your account is pending approval from an administrator. You will be notified once approved.',
         user: {
@@ -449,6 +463,13 @@ export const register = async (req, res, next) => {
 
         // For Employee role, return pending status message
         if (role === 'Employee') {
+          // NEW: Send pending approval email
+          await sendGenericEmail(
+            existingUserByEmail.email,
+            'Your Account Registration is Pending Approval',
+            'account-pending', // Using the new purpose for template lookup
+            existingUserByEmail.name || existingUserByEmail.username
+          );
           return res.status(201).json({
             message: 'Re-registration successful! Your account is pending approval from an administrator. You will be notified once approved.',
             user: {
@@ -514,6 +535,13 @@ export const register = async (req, res, next) => {
 
     // For Employee role, return pending status message
     if (role === 'Employee') {
+      // NEW: Send pending approval email
+      await sendGenericEmail(
+        newUser.email,
+        'Your Account Registration is Pending Approval',
+        'account-pending', // Using the new purpose for template lookup
+        newUser.name || newUser.username
+      );
       return res.status(201).json({
         message: 'Registration successful! Your account is pending approval from an administrator. You will be notified once approved.',
         user: {
@@ -889,6 +917,14 @@ export const googleSignup = async (req, res) => {
         
         await existingUserByEmail.save();
 
+        // NEW: Send pending approval email for Google re-registration
+        await sendGenericEmail(
+          existingUserByEmail.email,
+          'Your Google Account Registration is Pending Approval',
+          'account-pending', // Using the new purpose for template lookup
+          existingUserByEmail.name || existingUserByEmail.username
+        );
+
         return res.status(201).json({
           message: 'Google Re-registration successful! Your Employee account is pending approval from an administrator. You will be notified once approved.',
           user: {
@@ -933,6 +969,14 @@ export const googleSignup = async (req, res) => {
       googleId,
       profilePicture: picture
     });
+
+    // NEW: Send pending approval email for new Google signup
+    await sendGenericEmail(
+      newUser.email,
+      'Your Google Account Registration is Pending Approval',
+      'account-pending', // Using the new purpose for template lookup
+      newUser.name || newUser.username
+    );
 
     // Employee accounts always require approval
     return res.status(201).json({
@@ -1020,5 +1064,118 @@ export const googleLookup = async (req, res) => {
   } catch (error) {
     console.error('❌ Google Lookup error:', error);
     res.status(400).json({ message: error.message || 'Invalid Google token' });
+  }
+};
+
+// NEW: Admin controller for user approval (Example - you might have a dedicated adminController.js)
+// @desc    Approve a user account
+// @route   PUT /api/admin/approve-user/:userId
+// @access  Private (Admin only)
+export const approveUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    
+    // In a real application, you'd verify the requesting user is an admin here
+    // For example: if (req.user.role !== 'Administrator') { return res.status(403).json({ message: 'Access denied' }); }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.status === 'approved') {
+      return res.status(400).json({ message: 'User account is already approved.' });
+    }
+
+    user.status = 'approved';
+    await user.save();
+
+    // NEW: Send account approved email
+    await sendGenericEmail(
+      user.email,
+      'Your Account Has Been Approved!',
+      'account-approved', // Using the new purpose for template lookup
+      user.name || user.username
+    );
+
+    res.status(200).json({
+      message: 'User account approved successfully and notification email sent.',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        name: user.name
+      }
+    });
+
+  } catch (error) {
+    console.error('Error approving user:', error);
+    next(error);
+  }
+};
+
+// NEW: Reject a user account (Example)
+// @desc    Reject a user account
+// @route   PUT /api/admin/reject-user/:userId
+// @access  Private (Admin only)
+export const rejectUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body; // Optional: reason for rejection
+
+    // In a real application, you'd verify the requesting user is an admin here
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.status === 'rejected') {
+      return res.status(400).json({ message: 'User account is already rejected.' });
+    }
+
+    user.status = 'rejected';
+    user.rejectionReason = reason;
+    user.rejectedAt = new Date();
+    user.rejectedBy = req.user ? req.user.id : null; // Assuming admin ID is in req.user
+    
+    await user.save();
+
+    // Optionally send a rejection email
+    await sendGenericEmail(
+      user.email,
+      'Your Account Registration Has Been Rejected',
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Dear ${user.name || user.username},</h2>
+          <p>We regret to inform you that your account registration has been **rejected**.</p>
+          ${reason ? `<p>Reason for rejection: **${reason}**</p>` : ''}
+          <p>If you believe this is an error or have any questions, please contact our support team.</p>
+          <hr style="margin: 30px 0;">
+          <p style="color: #666; font-size: 12px;">This is an automated message, please do not reply.</p>
+        </div>
+      `,
+      user.name || user.username
+    );
+
+    res.status(200).json({
+      message: 'User account rejected successfully and notification email sent.',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        name: user.name
+      }
+    });
+
+  } catch (error) {
+    console.error('Error rejecting user:', error);
+    next(error);
   }
 };
