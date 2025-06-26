@@ -505,7 +505,8 @@ const EmployeeDashboard = () => {
       }
 
       const taskToUpdate = tasks.find(task =>
-        (task.id && task.id === taskId) || (task._id && task._id === taskId)
+        (task.id && task.id.toString() === taskId.toString()) || 
+        (task._id && task._id.toString() === taskId.toString())
       );
 
       if (!taskToUpdate) {
@@ -513,15 +514,25 @@ const EmployeeDashboard = () => {
         return;
       }
 
+      // Store original task for rollback
+      const originalTask = { ...taskToUpdate };
+
       const updateData = {
         status: newStatus,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        // Include other important fields that might be required
+        title: taskToUpdate.title,
+        description: taskToUpdate.description,
+        priority: taskToUpdate.priority,
+        deadline: taskToUpdate.deadline,
+        assignedTo: taskToUpdate.assignedTo || taskToUpdate.assigned_to || taskToUpdate.employeeId
       };
 
       // Optimistically update the UI
       setTasks(prevTasks =>
         prevTasks.map(task => {
-          const taskMatch = (task.id && task.id === taskId) || (task._id && task._id === taskId);
+          const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
+                          (task._id && task._id.toString() === taskId.toString());
           return taskMatch
             ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
             : task;
@@ -529,41 +540,59 @@ const EmployeeDashboard = () => {
       );
 
       const baseEndpoint = getTaskEndpoint();
+      
+      // Try different endpoint patterns based on your TaskManagement.jsx
       const possibleEndpoints = [
-        `${baseEndpoint}/${taskId}`,
-        `${baseEndpoint}/update/${taskId}`,
-        `${baseEndpoint}/${taskId}/status`,
+        `${baseEndpoint}/${taskId}`,           // Standard REST pattern
+        `${baseEndpoint}/update/${taskId}`,    // Update specific endpoint
+        `${baseEndpoint}/${taskId}/status`,    // Status specific endpoint
+        `${baseEndpoint}/${taskId}/update`,    // Alternative update pattern
       ];
 
       let updateSuccess = false;
       let lastError = null;
+      let updatedTaskData = null;
 
+      // Try different HTTP methods and endpoints
       for (const endpoint of possibleEndpoints) {
-        for (const method of ['put', 'patch', 'post']) {
+        for (const method of ['put', 'patch']) { // Remove 'post' as it's not standard for updates
           try {
+            console.log(`Attempting ${method.toUpperCase()} to ${endpoint}`);
+            
             const response = await axios[method](endpoint, updateData, {
               headers: {
                 Authorization: `Bearer ${token}`,
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
               },
-              timeout: 10000
+              timeout: 15000 // Increased timeout
             });
 
             if (response.status >= 200 && response.status < 300) {
+              console.log(`Success with ${method.toUpperCase()} ${endpoint}:`, response.data);
               updateSuccess = true;
-              if (response.data) {
+              updatedTaskData = response.data;
+              
+              // Update with server response data
+              if (response.data && (response.data.task || response.data.id || response.data._id)) {
+                const serverTask = response.data.task || response.data;
                 setTasks(prevTasks => prevTasks.map(task => {
-                  const taskMatch = (task.id && task.id === taskId) || (task._id && task._id === taskId);
-                  return taskMatch ? { ...task, ...response.data } : task;
-                })
-                );
+                  const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
+                                  (task._id && task._id.toString() === taskId.toString());
+                  return taskMatch ? { ...task, ...serverTask } : task;
+                }));
               }
-              alert(`Task marked as ${newStatus.replace('-', ' ')}`);
+              
               break;
             }
           } catch (err) {
+            console.log(`Failed ${method.toUpperCase()} ${endpoint}:`, err.message);
             lastError = err;
+            
+            // If it's a 401, don't continue trying other endpoints
+            if (err.response && err.response.status === 401) {
+              throw err;
+            }
             continue;
           }
         }
@@ -573,27 +602,48 @@ const EmployeeDashboard = () => {
       if (!updateSuccess) {
         throw lastError || new Error("All update methods failed");
       }
+
+      alert(`Task marked as ${newStatus.replace('-', ' ')}`);
+      
+      // Optionally refresh tasks from server to ensure consistency
+      setTimeout(() => {
+        if (currentEmployee) {
+          fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
+        }
+      }, 1000);
+
     } catch (err) {
       console.error("Error updating task:", err);
       
-      // Revert optimistic update
-      const originalTask = tasks.find(task => (task.id && task.id === taskId) || (task._id && task._id === taskId));
+      // Revert optimistic update on error
+      const originalTask = tasks.find(task => 
+        (task.id && task.id.toString() === taskId.toString()) || 
+        (task._id && task._id.toString() === taskId.toString())
+      );
+      
       if (originalTask) {
         setTasks(prevTasks => prevTasks.map(task => {
-          const taskMatch = (task.id && task.id === taskId) || (task._id && task._id === taskId);
+          const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
+                          (task._id && task._id.toString() === taskId.toString());
           return taskMatch ? originalTask : task;
         }));
       }
 
+      // Handle different error types
       if (err.response?.status === 403) {
         alert("You don't have permission to update this task.");
       } else if (err.response?.status === 404) {
-        alert("Task update endpoint not found. Please contact your administrator.");
+        alert("Task not found or update endpoint not available. Please contact your administrator.");
       } else if (err.response?.status === 401) {
         alert("Session expired. Please log in again.");
         handleLogout(new Event('click'));
+      } else if (err.response?.status === 422) {
+        alert(`Invalid data: ${err.response?.data?.message || 'Please check the task data'}`);
+      } else if (err.code === 'ECONNABORTED') {
+        alert("Request timeout. Please try again.");
       } else {
-        alert(`Failed to update task: ${err.response?.data?.message || err.message}`);
+        const errorMsg = err.response?.data?.message || err.message || 'Unknown error occurred';
+        alert(`Failed to update task: ${errorMsg}`);
       }
     }
   };

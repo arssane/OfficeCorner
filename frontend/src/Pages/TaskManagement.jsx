@@ -57,24 +57,79 @@ const TaskManagement = () => {
   }, [employees]);
 
   useEffect(() => {
-    // Set loading to false if we have cached tasks
-    if (tasks.length > 0) {
-      setLoading(false);
-    }
+    initializeData();
     
-    checkAuthentication();
-    
-    // Set up periodic refresh every 30 seconds for admins
+    // Set up periodic refresh for authenticated users
     const refreshInterval = setInterval(() => {
       const token = localStorage.getItem("token");
-      const userRole = localStorage.getItem("userRole");
-      if (token && userRole === 'Administrator') {
+      if (token && isAuthenticated) {
+        console.log('Periodic refresh triggered');
         fetchTasks(token);
+        if (employees.length === 0) {
+          fetchEmployees(token);
+        }
       }
-    }, 30000); // 30 seconds
+    }, 30000);
     
     return () => clearInterval(refreshInterval);
-  }, []);
+  }, [isAuthenticated, employees.length]); // Add isAuthenticated and employees.length to dependencies
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const token = localStorage.getItem("token");
+      if (token) {
+        fetchData(token);  // Always fetch latest data from backend
+      }
+    } else {
+      // If not authenticated, ensure tasks are loaded from local storage
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks));
+      }
+      setLoading(false); // Ensure loading state is cleared
+    }
+  }, [isAuthenticated]);
+
+
+  const initializeData = async () => {
+    const token = localStorage.getItem("token");
+    
+    if (!token) {
+      // No token, just show cached data
+      setIsAuthenticated(false);
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks)); // Ensure tasks are loaded from local storage
+      }
+      if (tasks.length === 0 && (!savedTasks || JSON.parse(savedTasks).length === 0)) {
+        setError("Not logged in. Please log in to fetch tasks.");
+      } else {
+        setError("Not logged in. Showing cached tasks.");
+      }
+      setLoading(false);
+      return;
+    }
+    
+    setIsAuthenticated(true);
+    
+    // Try to fetch fresh data, but don't clear existing data on failure
+    try {
+      await fetchData(token);
+    } catch (err) {
+      console.log("Failed to fetch fresh data:", err);
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks)); // Fallback to local storage on fetch failure
+      }
+      if (tasks.length === 0 && (!savedTasks || JSON.parse(savedTasks).length === 0)) {
+        setError("Failed to sync with server. No cached tasks available.");
+      } else {
+        setError("Failed to sync with server. Showing cached tasks.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Check API endpoint and try options
   const checkEndpoints = async () => {
@@ -82,6 +137,7 @@ const TaskManagement = () => {
       const token = localStorage.getItem("token");
       if (!token) {
         setError("Authentication token not found. Please log in first.");
+        setLoading(false);
         return;
       }
       
@@ -98,9 +154,14 @@ const TaskManagement = () => {
           `${baseUrl}/api/task`
         ];
         
+        // Updated employee/user endpoints
         const employeeEndpoints = [
           `${baseUrl}/auth/users`,
+          `${baseUrl}/users`,
+          `${baseUrl}/api/users`,
+          `${baseUrl}/api/auth/users`,
           `${baseUrl}/employee`,
+          `${baseUrl}/employees`,
           `${baseUrl}/api/employees`,
           `${baseUrl}/api/employee`
         ];
@@ -149,10 +210,23 @@ const TaskManagement = () => {
               });
               
               if (response.ok) {
-                employeesData = await response.json();
-                workingEmployeeEndpoint = endpoint;
-                console.log(`Found working employee endpoint: ${endpoint}`);
-                break;
+                const rawData = await response.json();
+                console.log(`Raw employee data from ${endpoint}:`, rawData);
+                
+                // Handle different response structures
+                if (Array.isArray(rawData)) {
+                  employeesData = rawData;
+                } else if (rawData.users && Array.isArray(rawData.users)) {
+                  employeesData = rawData.users;
+                } else if (rawData.data && Array.isArray(rawData.data)) {
+                  employeesData = rawData.data;
+                }
+                
+                if (employeesData && employeesData.length > 0) {
+                  workingEmployeeEndpoint = endpoint;
+                  console.log(`Found working employee endpoint: ${endpoint}`, employeesData);
+                  break;
+                }
               }
             } catch (err) {
               console.log(`Endpoint ${endpoint} failed:`, err.message);
@@ -161,17 +235,29 @@ const TaskManagement = () => {
           
           if (workingTaskEndpoint) {
             localStorage.setItem("taskEndpoint", workingTaskEndpoint);
-            if (tasksData && tasksData.length > 0) {
-              setTasks(tasksData);
+            // Update tasks with server data
+            if (tasksData) {
+              const taskArray = Array.isArray(tasksData) ? tasksData : [];
+              setTasks(taskArray);
             }
           }
           
-          if (workingEmployeeEndpoint) {
+          if (workingEmployeeEndpoint && employeesData) {
             localStorage.setItem("employeeEndpoint", workingEmployeeEndpoint);
-            if (employeesData && employeesData.length > 0) {
-              setEmployees(employeesData);
-              localStorage.setItem('employees', JSON.stringify(employeesData));
-            }
+            
+            // Process employees to ensure consistent structure
+            const processedEmployees = employeesData.map(emp => ({
+              _id: emp._id || emp.id,
+              id: emp.id || emp._id,
+              name: emp.name || emp.username || emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unknown',
+              username: emp.username,
+              email: emp.email,
+              role: emp.role // Assuming the API returns a 'role' field
+            }));
+            
+            setEmployees(processedEmployees);
+            localStorage.setItem('employees', JSON.stringify(processedEmployees));
+            console.log('Processed employees:', processedEmployees);
           }
           
           setError(null);
@@ -181,8 +267,18 @@ const TaskManagement = () => {
       }
       
       setError("Could not find any working API endpoints. Using cached data.");
+      // Ensure tasks are loaded from local storage if API endpoints are not found
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks));
+      }
     } catch (err) {
       setError(`API endpoint check failed: ${err.message}. Using cached data.`);
+      // Ensure tasks are loaded from local storage on error
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks));
+      }
     } finally {
       setLoading(false);
     }
@@ -195,6 +291,11 @@ const TaskManagement = () => {
       setError("Authentication token not found. Showing cached tasks.");
       setIsAuthenticated(false);
       setLoading(false);
+      // Ensure tasks are loaded from local storage when not authenticated
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks));
+      }
     } else {
       const storedBaseUrl = localStorage.getItem("apiBaseUrl");
       if (storedBaseUrl) {
@@ -224,7 +325,7 @@ const TaskManagement = () => {
   };
 
   // Fetch tasks with token
-  const fetchTasks = async (token) => {
+ const fetchTasks = async (token) => {
     try {
       setLoading(true);
       
@@ -239,24 +340,63 @@ const TaskManagement = () => {
       
       if (response.ok) {
         const tasksData = await response.json();
-        const taskArray = Array.isArray(tasksData) ? tasksData : [];
+        console.log('Raw tasks response:', tasksData);
         
-        // Only update tasks if we got data from the server
-        if (taskArray.length > 0) {
-          setTasks(taskArray);
+        let taskArray = [];
+        
+        // Handle different response structures
+        if (Array.isArray(tasksData)) {
+          taskArray = tasksData;
+        } else if (tasksData.tasks && Array.isArray(tasksData.tasks)) {
+          taskArray = tasksData.tasks;
+        } else if (tasksData.data && Array.isArray(tasksData.data)) {
+          taskArray = tasksData.data;
         }
         
-        setError(null);
+        console.log('Processed task array:', taskArray);
+        console.log('Current tasks count:', tasks.length);
+        
+        // CRITICAL FIX: Only update tasks if we got meaningful data
+        // Don't overwrite existing tasks with empty array unless we're sure that's correct
+        if (taskArray.length > 0 || tasks.length === 0) {
+          setTasks(taskArray);
+          console.log('Tasks updated with server data');
+        } else {
+          console.log('Server returned empty tasks but we have cached tasks, keeping cached data');
+          setError("Server returned no tasks. Showing cached data.");
+        }
+        
+        // Clear any previous errors if we got a successful response
+        if (taskArray.length > 0) {
+          setError(null);
+        }
+        
       } else if (response.status === 401) {
         setError("Session expired. Showing cached tasks. Please log in to refresh.");
         localStorage.removeItem("token");
         setIsAuthenticated(false);
+        // Ensure tasks are loaded from local storage on 401
+        const savedTasks = localStorage.getItem('tasks');
+        if (savedTasks) {
+          setTasks(JSON.parse(savedTasks));
+        }
       } else {
+        console.log('API response not OK:', response.status, response.statusText);
         setError(`API returned an error: ${response.status} - ${response.statusText}. Using cached tasks.`);
+        // Ensure tasks are loaded from local storage on other API errors
+        const savedTasks = localStorage.getItem('tasks');
+        if (savedTasks) {
+          setTasks(JSON.parse(savedTasks));
+        }
       }
     } catch (err) {
       console.log("Error fetching tasks:", err);
       setError("Network error. Showing cached tasks.");
+      // Ensure tasks are loaded from local storage on network errors
+      const savedTasks = localStorage.getItem('tasks');
+      if (savedTasks) {
+        setTasks(JSON.parse(savedTasks));
+      }
     } finally {
       setLoading(false);
     }
@@ -276,12 +416,32 @@ const TaskManagement = () => {
       
       if (response.ok) {
         const employeesData = await response.json();
-        const employeeArray = Array.isArray(employeesData) ? employeesData : [];
+        let employeeArray = [];
+        
+        // Handle different response structures
+        if (Array.isArray(employeesData)) {
+          employeeArray = employeesData;
+        } else if (employeesData.users && Array.isArray(employeesData.users)) {
+          employeeArray = employeesData.users;
+        } else if (employeesData.data && Array.isArray(employeesData.data)) {
+          employeeArray = employeesData.data;
+        }
+        
+        // Ensure each employee has the required fields
+        employeeArray = employeeArray.map(emp => ({
+          _id: emp._id || emp.id,
+          id: emp.id || emp._id,
+          name: emp.name || emp.username || emp.fullName || `${emp.firstName} ${emp.lastName}`.trim(),
+          username: emp.username,
+          email: emp.email,
+          role: emp.role // *** Add this line to capture the role from the API response ***
+        }));
         
         // Only update employees if we got data from the server
         if (employeeArray.length > 0) {
           setEmployees(employeeArray);
           localStorage.setItem('employees', JSON.stringify(employeeArray));
+          console.log('Employees updated:', employeeArray);
         }
       }
     } catch (err) {
@@ -444,13 +604,29 @@ const TaskManagement = () => {
             ));
             
             console.log("Task successfully deleted on server and locally");
+          } else {
+            // If server deletion fails, log error and don't delete locally
+            const errorData = await response.json();
+            console.error("Server deletion failed:", errorData);
+            setError(`Failed to delete task on server: ${errorData.message || response.statusText}`);
+            setIsDeleteOpen(false);
+            setTaskToDelete(null);
+            return;
           }
           
         } catch (apiErr) {
           console.error("DELETE API error:", apiErr.message);
-          setError(`Failed to delete task: ${apiErr.message}`);
+          setError(`Failed to delete task: ${apiErr.message}. Task was not deleted from server.`);
+          setIsDeleteOpen(false);
+          setTaskToDelete(null);
           return; // Don't delete locally if server deletion failed
         }
+      } else {
+        // If not authenticated, delete locally
+        setTasks(tasks.filter(task => 
+          task.id !== taskToDelete && task._id !== taskToDelete
+        ));
+        console.log("Task successfully deleted locally (not authenticated)");
       }
       
       setIsDeleteOpen(false);
@@ -472,11 +648,46 @@ const TaskManagement = () => {
   };
 
   // Find employee name by ID
-  const getEmployeeName = (employeeId) => {
-    if (!employeeId) return "Unassigned";
-    const employee = employees.find(emp => emp._id === employeeId || emp.id === employeeId);
-    return employee ? employee.name : "Unknown";
+  const getEmployeeName = (assignedTo) => {
+    console.log('getEmployeeName called with:', assignedTo);
+    console.log('Type of assignedTo:', typeof assignedTo);
+    console.log('Available employees:', employees);
+    
+    if (!assignedTo) {
+      console.log('No assignedTo value, returning Unassigned');
+      return "Unassigned";
+    }
+    
+    // If assignedTo is already populated (object with name property)
+    if (typeof assignedTo === 'object' && assignedTo !== null && assignedTo.name) {
+      console.log('assignedTo is populated object, returning:', assignedTo.name);
+      return assignedTo.name;
+    }
+    
+    // If assignedTo is just an ID (string), look it up in employees array
+    if (typeof assignedTo === 'string') {
+      console.log('assignedTo is string ID, searching in employees...');
+      const employee = employees.find(emp => {
+        const match = (emp._id === assignedTo || emp.id === assignedTo);
+        console.log(`Checking employee ${emp.name} (${emp._id || emp.id}) against ${assignedTo}: ${match}`);
+        return match;
+      });
+      
+      if (employee) {
+        console.log('Found employee:', employee.name);
+        return employee.name;
+      } else {
+        console.log('No employee found for ID:', assignedTo);
+        return `Unknown Employee (${assignedTo})`;
+      }
+    }
+    
+    console.log('Fallback: returning Unassigned');
+    return "Unassigned";
   };
+
+  // Filtered employees for dropdowns (excluding 'Administrator' role)
+  const assignableEmployees = employees.filter(employee => employee.role !== 'Administrator');
 
   if (loading && tasks.length === 0) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
@@ -627,7 +838,7 @@ const TaskManagement = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <FaClock className="mr-2 text-slate-400" />
+                          <FaClock className="mr-2" />
                           <span className="text-slate-700">{formatDate(task.deadline)}</span>
                         </div>
                       </td>
@@ -747,7 +958,8 @@ const TaskManagement = () => {
                     onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
                   >
                     <option value="">Select Employee</option>
-                    {employees.map(employee => (
+                    {/* Use assignableEmployees here */}
+                    {assignableEmployees.map(employee => (
                       <option key={employee._id || employee.id} value={employee._id || employee.id}>
                         {employee.name}
                       </option>
@@ -849,7 +1061,8 @@ const TaskManagement = () => {
                     onChange={(e) => setTaskToEdit({ ...taskToEdit, assignedTo: e.target.value })}
                   >
                     <option value="">Select Employee</option>
-                    {employees.map(employee => (
+                    {/* Use assignableEmployees here */}
+                    {assignableEmployees.map(employee => (
                       <option key={employee._id || employee.id} value={employee._id || employee.id}>
                         {employee.name}
                       </option>

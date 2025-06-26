@@ -36,7 +36,6 @@ const EmployeeManagement = () => {
     description: "",
     code: "",
     manager: "",
-    budget: 0,
     location: "",
   });
 
@@ -502,7 +501,7 @@ const EmployeeManagement = () => {
       );
 
       await fetchDepartments();
-      setNewDepartment({ name: "", description: "", code: "", manager: "", budget: 0, location: "" });
+      setNewDepartment({ name: "", description: "", code: "", manager: "", location: "" });
       setIsDepartmentModalOpen(false);
       setError("");
     } catch (err) {
@@ -607,7 +606,7 @@ const EmployeeManagement = () => {
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-5 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:-translate-y-1"
             onClick={() => {
               setCurrentEditingDepartment(null);
-              setNewDepartment({ name: "", description: "", code: "", manager: "", budget: 0, location: "" });
+              setNewDepartment({ name: "", description: "", code: "", manager: "", location: "" });
               setIsDepartmentModalOpen(true);
             }}
           >
@@ -723,7 +722,6 @@ const EmployeeManagement = () => {
                     <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Code</th>
                     <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Description</th>
                     <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Manager</th>
-                    <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Budget</th>
                     <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Location</th>
                     <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Active</th>
                     <th className="py-3 px-4 border-b border-green-200 text-left text-sm font-medium text-green-800 uppercase tracking-wider">Employee Count</th>
@@ -755,7 +753,6 @@ const EmployeeManagement = () => {
                         <td className="py-3 px-4 border-b border-gray-200">
                           {dept.manager ? dept.manager.name : "N/A"}
                         </td>
-                        <td className="py-3 px-4 border-b border-gray-200">${dept.budget?.toLocaleString() || '0'}</td>
                         <td className="py-3 px-4 border-b border-gray-200">{dept.location}</td>
                         <td className="py-3 px-4 border-b border-gray-200">
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
@@ -1052,18 +1049,6 @@ const EmployeeManagement = () => {
               </div>
 
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">Budget</label>
-                <input
-                  type="number"
-                  name="budget"
-                  value={currentEditingDepartment ? currentEditingDepartment.budget : newDepartment.budget}
-                  onChange={(e) => currentEditingDepartment ? setCurrentEditingDepartment({...currentEditingDepartment, budget: Number(e.target.value)}) : handleDepartmentChange(e)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition duration-200"
-                  min="0"
-                />
-              </div>
-
-              <div>
                 <label className="block text-gray-700 text-sm font-semibold mb-2">Location</label>
                 <input
                   type="text"
@@ -1131,7 +1116,6 @@ const EmployeeManagement = () => {
                 <div>
                   <p><strong>Code:</strong> {selectedDepartment.code}</p>
                   <p><strong>Manager:</strong> {selectedDepartment.manager?.name || "N/A"}</p>
-                  <p><strong>Budget:</strong> ${selectedDepartment.budget?.toLocaleString() || '0'}</p>
                 </div>
                 <div>
                   <p><strong>Location:</strong> {selectedDepartment.location}</p>
