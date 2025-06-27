@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, MousePointerClick, RefreshCw } from 'lucide-react';
+import { Calendar, MousePointerClick, RefreshCw, Eye, Paperclip, Upload, XCircle, CheckCircle, Check, MapPin, LogIn, LogOut } from 'lucide-react'; // Added MapPin, LogIn, LogOut icons
 import axios from 'axios';
-import CalendarPlanning from './CalendarPlanning';
-import { GrView } from "react-icons/gr";
 import { Link, useNavigate } from 'react-router-dom';
-// Ensure FaCheck is imported here along with other icons
-import { FaPaperclip, FaUpload, FaTimesCircle, FaCheckCircle, FaCheck } from "react-icons/fa"; 
 
 const EmployeeDashboard = () => {
   const navigate = useNavigate();
@@ -27,17 +23,14 @@ const EmployeeDashboard = () => {
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState(null);
 
-
   // Attendance State
-  const [attendanceHistory, setAttendanceHistory] = useState([
-    { date: 'Mar 21, 2025', timeIn: '08:52 AM', timeOut: '05:07 PM', status: 'Present' },
-    { date: 'Mar 20, 2025', timeIn: '09:05 AM', timeOut: '05:15 PM', status: 'Present' },
-    { date: 'Mar 19, 2025', timeIn: '08:48 AM', timeOut: '05:03 PM', status: 'Present' },
-    { date: 'Mar 18, 2025', timeIn: '-', timeOut: '-', status: 'Vacation' },
-    { date: 'Mar 17, 2025', timeIn: '08:59 AM', timeOut: '04:58 PM', status: 'Present' },
-  ]);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationError, setLocationError] = useState(null);
+  const [isClockedIn, setIsClockedIn] = useState(false); // New state to track clock-in status
+  const [currentAttendanceRecordId, setCurrentAttendanceRecordId] = useState(null); // New state for current attendance record ID
 
-  // Sample events data
+  // Sample events data (can be fetched from API)
   const events = [
     { id: 1, title: 'Team Meeting', date: 'Mar 22, 2025', time: '10:00 AM - 11:00 AM', location: 'Conference Room A' },
     { id: 2, title: 'Project Kickoff', date: 'Mar 24, 2025', time: '02:00 PM - 03:30 PM', location: 'Main Office' },
@@ -45,15 +38,6 @@ const EmployeeDashboard = () => {
     { id: 4, title: 'Department Lunch', date: 'Mar 26, 2025', time: '12:30 PM - 01:30 PM', location: 'Cafeteria' },
     { id: 5, title: 'Training Session', date: 'Mar 28, 2025', time: '09:00 AM - 12:00 PM', location: 'Training Room' },
   ];
-
-  // Fallback employee data
-  const fallbackEmployee = {
-    id: "fallback-employee-id",
-    name: "Employee",
-    email: "employee@example.com",
-    department: "General",
-    position: "Staff"
-  };
 
   // Initialize currentEmployee with better error handling
   const [currentEmployee, setCurrentEmployee] = useState(() => {
@@ -87,7 +71,6 @@ const EmployeeDashboard = () => {
       console.log('No authentication found, redirecting to login');
       setIsLoggedIn(false);
       setAuthChecked(true);
-      navigate('/login');
       return false;
     }
 
@@ -125,6 +108,8 @@ const EmployeeDashboard = () => {
     setCurrentEmployee(null);
     setTasks([]);
     setAttendanceHistory([]);
+    setIsClockedIn(false); // Clear clock-in status on logout
+    setCurrentAttendanceRecordId(null); // Clear current record ID on logout
     navigate("/login");
   };
 
@@ -142,6 +127,12 @@ const EmployeeDashboard = () => {
 
   // Enhanced profile fetching with better error handling
   const fetchEmployeeProfile = async () => {
+    // Only attempt to fetch if currentEmployee is null, preventing redundant fetches
+    if (currentEmployee) {
+      console.log("Employee profile already set, skipping fetch.");
+      return;
+    }
+
     if (!checkAuthStatus()) return;
 
     try {
@@ -216,7 +207,7 @@ const EmployeeDashboard = () => {
           name: displayedName,
           email: fetchedUserData.email,
           department: fetchedUserData.department || 'General',
-          position: fetchedUserData.position || 'Staff',
+          position: fetchedGdata.position || 'Staff',
           username: fetchedUserData.username,
           status: fetchedUserData.status
         };
@@ -276,17 +267,83 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // Attendance functions
-  const handleLocalAttendanceFallback = () => {
-    console.log("Falling back to local attendance recording");
-    alert("Could not connect to server to record attendance. Please try again later.");
+  // Format time for display (e.g., "10:30 AM")
+  const formatTime = (dateString) => {
+    if (!dateString || dateString === '-' || dateString === 'null') {
+      return 'N/A';
+    }
+    try {
+      const dateObj = new Date(dateString);
+      // Check if the dateObj is a valid date
+      if (isNaN(dateObj.getTime())) {
+        console.warn("Invalid date string provided to formatTime:", dateString);
+        return 'Invalid Time';
+      }
+      const options = { hour: '2-digit', minute: '2-digit', hour12: true };
+      return dateObj.toLocaleTimeString(undefined, options);
+    } catch (e) {
+      console.error("Error formatting time:", e);
+      return 'Error Time';
+    }
   };
 
-  const handleManualAttendance = async () => {
+  // Function to get user's current geolocation
+  const getUserGeolocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser. Please update or use a different browser.");
+      return null;
+    }
+
+    setLoading(true);
+    setLocationError(null); // Clear previous location error
+
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserLocation({ latitude, longitude });
+          setLoading(false);
+          setLocationError(null); // Clear any lingering error on success
+          resolve({ latitude, longitude });
+        },
+        (error) => {
+          console.error("Error getting geolocation:", error);
+          let errorMessage = "An unknown error occurred while getting location.";
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              // This occurs when the user explicitly denies location access.
+              // Instruct the user to check browser and device settings.
+              errorMessage = "Location access denied. Please allow location access in your browser settings (and device settings if on mobile) and retry.";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorMessage = "Location information is unavailable. Please ensure GPS/location services are enabled.";
+              break;
+            case error.TIMEOUT:
+              errorMessage = "The request to get user location timed out. Please try again.";
+              break;
+            default:
+              errorMessage = `An unexpected error occurred: ${error.message || error.code}.`;
+              break;
+          }
+          setLocationError(errorMessage);
+          setLoading(false);
+          reject(new Error(errorMessage));
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    });
+  };
+
+  // Clock-in function (formerly handleManualAttendance)
+  const handleClockIn = async () => {
     if (!checkAuthStatus()) return;
 
     try {
-      console.log("Starting attendance recording");
+      console.log("Starting clock-in recording");
       const token = localStorage.getItem("token");
       
       if (!token) {
@@ -295,11 +352,7 @@ const EmployeeDashboard = () => {
         return;
       }
 
-      const baseUrl = getApiBaseUrl();
-      const attendanceEndpoint = `${baseUrl}/attendance/record`;
-
       const employeeId = currentEmployee?.id || localStorage.getItem("employeeId");
-
       if (!employeeId) {
         console.error("No employee ID found");
         alert("Employee ID not found. Please log in again.");
@@ -307,7 +360,33 @@ const EmployeeDashboard = () => {
         return;
       }
 
-      const requestData = { employeeId };
+      let locationData = userLocation; 
+      if (!locationData) {
+        try {
+          locationData = await getUserGeolocation();
+          if (!locationData) {
+            return; 
+          }
+        } catch (err) {
+          return; 
+        }
+      }
+
+      const currentTime = new Date();
+      const clockInTime = currentTime.toISOString(); // ISO string for backend
+      // Frontend no longer calculates isLate. Backend will handle it.
+      // const isLate = currentTime.getHours() >= 10; 
+
+      const baseUrl = getApiBaseUrl();
+      const attendanceEndpoint = `${baseUrl}/attendance/record`;
+
+      const requestData = { 
+        employeeId,
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        timeIn: clockInTime, // Send clock-in time
+        // isLate: isLate // Removed, backend will calculate
+      };
       const requestHeaders = {
         Authorization: `Bearer ${token}`,
         'Accept': 'application/json',
@@ -321,29 +400,113 @@ const EmployeeDashboard = () => {
         timeout: 10000
       });
 
-      if (response.data.success) {
-        console.log("Attendance recorded successfully");
-        await fetchAttendanceHistory(employeeId);
-        alert(`Success: ${response.data.message}`);
+      if (response.status >= 200 && response.status < 300 && response.data.success) {
+        console.log("Clock-in recorded successfully");
+        // Assuming backend returns the full attendance record including its _id and calculated flags
+        const newRecord = response.data.data; 
+        setIsClockedIn(true);
+        setCurrentAttendanceRecordId(newRecord._id || newRecord.id); // Store the ID for clock-out
+        alert(`Success: ${response.data.message}${newRecord.isLate ? " (Marked as Late)" : ""}`);
+        setLocationError(null); 
+        await fetchAttendanceHistory(employeeId); // Refresh history
       } else {
-        console.error("Server returned unsuccessful response:", response.data);
-        alert(response.data.message || "Failed to record attendance");
+        console.error("Server returned unsuccessful response or non-2xx status:", response);
+        const errorMessage = response.data?.message || `Server error: ${response.status} ${response.statusText}`;
+        alert(`Failed to record clock-in: ${errorMessage}`);
+        setLocationError(errorMessage); 
       }
 
     } catch (error) {
-      console.error("Error recording attendance:", error);
+      console.error("Error recording clock-in:", error);
+      let alertMessage = "Failed to record clock-in: An unexpected error occurred.";
       if (error.response?.status === 401) {
-        alert("Session expired. Please log in again.");
+        alertMessage = "Session expired. Please log in again.";
         handleLogout(new Event('click'));
-      } else if (error.response) {
-        const errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
-        alert(`Failed to record attendance: ${errorMessage}`);
+      } else if (error.response?.status === 403) {
+        alertMessage = error.response.data?.message || "You are not within the allowed workspace to record attendance.";
       } else if (error.request) {
-        alert("Network error: Unable to connect to server. Check your internet connection.");
-        handleLocalAttendanceFallback();
-      } else {
-        alert(`Request failed: ${error.message}`);
+        alertMessage = "Network error: Unable to connect to server. Check your internet connection.";
+      } else if (error.message) {
+        alertMessage = `Request failed: ${error.message}`;
       }
+      alert(alertMessage);
+      setLocationError(alertMessage); 
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Clock-out function
+  const handleClockOut = async () => {
+    if (!checkAuthStatus()) return;
+    if (!isClockedIn || !currentAttendanceRecordId) {
+      alert("You are not currently clocked in.");
+      return;
+    }
+
+    try {
+      console.log("Starting clock-out recording");
+      const token = localStorage.getItem("token");
+      if (!token) {
+        alert("Authentication token not found. Please log in again.");
+        navigate('/login');
+        return;
+      }
+
+      const currentTime = new Date();
+      const clockOutTime = currentTime.toISOString(); // ISO string for backend
+      // Frontend no longer calculates isOvertime. Backend will handle it.
+      // const isOvertime = currentTime.getHours() >= 18; 
+
+      const baseUrl = getApiBaseUrl();
+      // Assuming an update endpoint for existing attendance records
+      const attendanceEndpoint = `${baseUrl}/attendance/update/${currentAttendanceRecordId}`; 
+
+      const requestData = {
+        timeOut: clockOutTime, // Send clock-out time
+        // isOvertime: isOvertime // Removed, backend will calculate
+      };
+      const requestHeaders = {
+        Authorization: `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      };
+
+      setLoading(true);
+
+      const response = await axios.put(attendanceEndpoint, requestData, { // Using PUT/PATCH for update
+        headers: requestHeaders,
+        timeout: 10000
+      });
+
+      if (response.status >= 200 && response.status < 300 && response.data.success) {
+        console.log("Clock-out recorded successfully");
+        const updatedRecord = response.data.data;
+        setIsClockedIn(false);
+        setCurrentAttendanceRecordId(null); // Clear current record ID
+        alert(`Success: ${response.data.message}${updatedRecord.isOvertime ? " (Marked as Overtime)" : ""}`);
+        setLocationError(null);
+        await fetchAttendanceHistory(currentEmployee.id || localStorage.getItem("employeeId")); // Refresh history
+      } else {
+        console.error("Server returned unsuccessful response or non-2xx status:", response);
+        const errorMessage = response.data?.message || `Server error: ${response.status} ${response.statusText}`;
+        alert(`Failed to record clock-out: ${errorMessage}`);
+        setLocationError(errorMessage); 
+      }
+
+    } catch (error) {
+      console.error("Error recording clock-out:", error);
+      let alertMessage = "Failed to record clock-out: An unexpected error occurred.";
+      if (error.response?.status === 401) {
+        alertMessage = "Session expired. Please log in again.";
+        handleLogout(new Event('click'));
+      } else if (error.request) {
+        alertMessage = "Network error: Unable to connect to server. Check your internet connection.";
+      } else if (error.message) {
+        alertMessage = `Request failed: ${error.message}`;
+      }
+      alert(alertMessage);
+      setLocationError(alertMessage); 
     } finally {
       setLoading(false);
     }
@@ -369,8 +532,54 @@ const EmployeeDashboard = () => {
       });
 
       if (response.data.success) {
-        setAttendanceHistory(response.data.data);
+        const fetchedRecords = response.data.data.map(record => {
+          // Frontend now relies on backend's isLate/isOvertime flags,
+          // but provides a fallback calculation if they are undefined (e.g., from old records without these fields).
+          const recordTimeIn = record.timeIn ? new Date(record.timeIn) : null;
+          const recordTimeOut = record.timeOut ? new Date(record.timeOut) : null;
+          
+          // Fallback calculation for display if backend flags are missing
+          const isLateFallback = (recordTimeIn && (recordTimeIn.getHours() < 7 || recordTimeIn.getHours() >= 10));
+          // Assuming 8 hours (480 minutes) is standard work duration for overtime fallback
+          const isOvertimeFallback = (record.duration && record.duration > (8 * 60));
+
+          return { 
+            ...record, 
+            isLate: record.isLate !== undefined ? record.isLate : isLateFallback, 
+            isOvertime: record.isOvertime !== undefined ? record.isOvertime : isOvertimeFallback
+          };
+        });
+
+        setAttendanceHistory(fetchedRecords);
         setError(null);
+
+        // Check if the user is currently clocked in based on the latest record
+        // Find the latest record for today that has a timeIn but no timeOut
+        const today = new Date();
+        const startOfToday = new Date(today); // Clone for manipulation
+        startOfToday.setHours(0,0,0,0);
+        const endOfToday = new Date(today); // Clone for manipulation
+        endOfToday.setHours(23,59,59,999);
+
+        // Filter for records on the current date
+        const recordsToday = fetchedRecords.filter(record => {
+          const recordDate = new Date(record.date);
+          return recordDate >= startOfToday && recordDate <= endOfToday;
+        });
+
+        // Find the record that is clocked in (timeIn exists, timeOut is null)
+        const latestClockedInRecordForToday = recordsToday.find(record => 
+          record.timeIn && (record.timeOut === null || record.timeOut === undefined || record.timeOut === 'N/A') // Check for 'N/A' too
+        );
+        
+        if (latestClockedInRecordForToday) {
+          setIsClockedIn(true);
+          setCurrentAttendanceRecordId(latestClockedInRecordForToday._id || latestClockedInRecordForToday.id);
+        } else {
+          setIsClockedIn(false);
+          setCurrentAttendanceRecordId(null);
+        }
+
       } else {
         console.error('Failed to fetch attendance history:', response.data.message);
       }
@@ -548,6 +757,7 @@ const EmployeeDashboard = () => {
     if (currentEmployee) {
       console.log("Manual refresh triggered");
       await fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
+      await fetchAttendanceHistory(currentEmployee.id || currentEmployee._id); // Also refresh attendance
     }
   };
 
@@ -756,7 +966,21 @@ const EmployeeDashboard = () => {
     year: 'numeric' 
   });
 
-  // Generate calendar days
+  // Generate calendar days - Simplified to directly display in the component
+  const renderCalendarPlanning = () => {
+    return (
+      <div>
+        <h3 className="text-xl font-semibold text-green-700 mb-4">Calendar View</h3>
+        <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium text-gray-600 mb-4">
+          <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+        </div>
+        <div className="grid grid-cols-7 gap-2 text-center text-gray-800">
+          {generateCalendarDays()}
+        </div>
+      </div>
+    );
+  };
+
   const generateCalendarDays = () => {
     const days = [];
     const eventDays = events.map(event => event.date);
@@ -773,9 +997,13 @@ const EmployeeDashboard = () => {
 
     // Days of the month
     for (let i = 1; i <= daysInMonth; i++) {
-      const dateStr = `Mar ${i}, 2025`;
-      const hasEvent = eventDays.includes(dateStr);
-      const isToday = i === currentDate.getDate();
+      const date = new Date(currentYear, currentMonth, i);
+      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).replace(',', '');
+      const hasEvent = events.some(event => {
+        const eventDate = new Date(event.date);
+        return eventDate.getDate() === i && eventDate.getMonth() === currentMonth && eventDate.getFullYear() === currentYear;
+      });
+      const isToday = i === currentDate.getDate() && currentMonth === new Date().getMonth() && currentYear === new Date().getFullYear();
       
       days.push(
         <div 
@@ -793,45 +1021,47 @@ const EmployeeDashboard = () => {
   };
 
   // Effect hooks
+  // This useEffect ensures authentication status is checked on mount.
   useEffect(() => {
     if (!authChecked) {
       checkAuthStatus();
     }
   }, [authChecked]);
 
+  // This useEffect handles the initial profile fetch after authentication is checked.
+  // It only fetches if isLoggedIn is true and currentEmployee has not been set yet.
   useEffect(() => {
-    if (authChecked && isLoggedIn) {
+    if (authChecked && isLoggedIn && !currentEmployee) {
       fetchEmployeeProfile();
-
-      // Set up refresh interval
-      const refreshInterval = setInterval(() => {
-        if (currentEmployee) {
-          fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
-          fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
-        }
-      }, 120000); // Refresh every 2 minutes
-
-      return () => clearInterval(refreshInterval);
     }
-  }, [authChecked, isLoggedIn]);
+  }, [authChecked, isLoggedIn, currentEmployee]); // Added currentEmployee to deps to prevent re-fetching if already set
 
+  // This useEffect handles fetching tasks and attendance history, and setting up the refresh interval.
+  // It runs only when currentEmployee or isLoggedIn changes, ensuring currentEmployee is available.
   useEffect(() => {
     if (currentEmployee && isLoggedIn) {
       fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
       fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
+
+      // Set up refresh interval for tasks and attendance, only if currentEmployee exists
+      const refreshInterval = setInterval(() => {
+        fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
+        fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
+      }, 120000); // Refresh every 2 minutes
+
+      return () => clearInterval(refreshInterval);
     }
-  }, [currentEmployee]);
+  }, [currentEmployee, isLoggedIn]); // Dependencies: currentEmployee and login status
 
+  // Request geolocation on component mount if userLocation is not already set
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && currentEmployee && activeTab === 'tasks' && isLoggedIn) {
-        fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
-      }
-    };
+    // Only attempt to get geolocation if logged in, location isn't already set, and there's no existing location error.
+    // Also, ensure it only runs if the 'attendance' tab is active, to avoid unnecessary prompts.
+    if (isLoggedIn && activeTab === 'attendance' && !userLocation && !locationError) {
+      getUserGeolocation().catch(err => console.log("Initial geolocation fetch failed:", err.message));
+    }
+  }, [isLoggedIn, userLocation, locationError, activeTab]);
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [currentEmployee, activeTab, isLoggedIn]);
 
   // Show loading screen while checking auth
   if (!authChecked || (loading && !currentEmployee)) {
@@ -926,13 +1156,12 @@ const EmployeeDashboard = () => {
                     <Calendar className="mr-3" size={20} /> Calendar
                   </button>
                 </li>
-                {/* Attendance Tab (New from Employeedash1.jsx) */}
+                {/* Attendance Tab */}
                 <li>
                   <button onClick={() => setActiveTab('attendance')} className={`w-full text-left flex items-center p-3 rounded-lg transition-colors duration-200 ${activeTab === 'attendance' ? 'bg-green-700 text-white' : 'hover:bg-green-700 hover:text-white'}`} >
                     <MousePointerClick className="mr-3" size={20} /> Attendance
                   </button>
                 </li>
-                {/* Add more navigation items as needed */}
               </ul>
             </nav>
           </div>
@@ -980,14 +1209,14 @@ const EmployeeDashboard = () => {
                       <p><strong className="text-green-700">Status:</strong> <span className={`font-medium ${task.status === 'completed' ? 'text-green-500' : 'text-yellow-600'}`}>{task.status}</span></p>
                       {task.assignedFile && (
                         <p className="flex items-center">
-                          <FaPaperclip className="mr-1 text-blue-500" />
+                          <Paperclip className="mr-1 text-blue-500" size={16} /> {/* Replaced FaPaperclip */}
                           <strong className="text-green-700">Assigned File:</strong>{" "}
                           <a href={task.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">View File</a>
                         </p>
                       )}
                       {task.completedFile && (
                         <p className="flex items-center">
-                          <FaCheckCircle className="mr-1 text-emerald-500" />
+                          <CheckCircle className="mr-1 text-emerald-500" size={16} /> {/* Replaced FaCheckCircle */}
                           <strong className="text-green-700">Completed File:</strong>{" "}
                           <a href={task.completedFile} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline ml-1">View File</a>
                         </p>
@@ -998,14 +1227,14 @@ const EmployeeDashboard = () => {
                         onClick={() => handleOpenModal(task)}
                         className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 text-sm"
                       >
-                        <GrView className="mr-1" /> View Details
+                        <Eye className="mr-1" size={16} /> View Details {/* Replaced GrView */}
                       </button>
                       {task.status !== 'completed' && (
                         <button
                           onClick={() => handleOpenCompletionModal(task)} // Open new completion modal
                           className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 transition-colors duration-200 text-sm flex items-center"
                         >
-                          <FaCheck className="mr-1" /> Mark as Complete
+                          <Check className="mr-1" size={16} /> Mark as Complete {/* Replaced FaCheck */}
                         </button>
                       )}
                     </div>
@@ -1018,7 +1247,7 @@ const EmployeeDashboard = () => {
           {activeTab === 'calendar' && (
             <section className="bg-white rounded-lg shadow-md p-6 mb-6">
               <h2 className="text-3xl font-bold text-green-800 mb-6 border-b-2 border-green-200 pb-3">My Calendar</h2>
-              <CalendarPlanning events={events} />
+              {/* Replaced CalendarPlanning with inline calendar logic */}
               <div className="mt-6">
                 <h3 className="text-xl font-semibold text-green-700 mb-4">Upcoming Events</h3>
                 {events.length > 0 ? (
@@ -1036,30 +1265,53 @@ const EmployeeDashboard = () => {
                   <p className="text-gray-600">No upcoming events.</p>
                 )}
               </div>
-              <div className="mt-8">
-                <h3 className="text-xl font-semibold text-green-700 mb-4">Calendar View</h3>
-                <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium text-gray-600 mb-4">
-                  <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
-                </div>
-                <div className="grid grid-cols-7 gap-2 text-center text-gray-800">
-                  {generateCalendarDays()}
-                </div>
-              </div>
+              {renderCalendarPlanning()} {/* Call the new render function */}
             </section>
           )}
 
-          {/* Attendance Section (New from Employeedash1.jsx) */}
+          {/* Attendance Section */}
           {activeTab === 'attendance' && (
             <section className="bg-white rounded-lg shadow-md p-6 mb-6">
               <h2 className="text-3xl font-bold text-green-800 mb-6 border-b-2 border-green-200 pb-3">My Attendance</h2>
-              <div className="flex justify-start mb-6">
-                <button
-                  onClick={handleManualAttendance}
-                  className="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition-colors duration-200 text-lg font-medium shadow-md"
-                >
-                  Record My Attendance
-                </button>
+              <div className="flex justify-start mb-6 gap-4">
+                {!isClockedIn ? (
+                  <button
+                    onClick={handleClockIn}
+                    className="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition-colors duration-200 text-lg font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    disabled={loading}
+                  >
+                    <LogIn size={20} className="mr-2" />
+                    {loading ? 'Getting Location...' : 'Clock In'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleClockOut}
+                    className="bg-red-600 text-white px-5 py-2 rounded-md hover:bg-red-700 transition-colors duration-200 text-lg font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    disabled={loading}
+                  >
+                    <LogOut size={20} className="mr-2" />
+                    {loading ? 'Processing Clock-out...' : 'Clock Out'}
+                  </button>
+                )}
               </div>
+
+              {locationError && (
+                <div className="bg-red-50 border border-red-500 text-red-700 px-4 py-3 rounded-lg relative mb-4 flex flex-col md:flex-row items-start md:items-center justify-between" role="alert">
+                  <div className="flex items-start">
+                    <MapPin className="text-red-600 mr-3 mt-1 md:mt-0" size={20} />
+                    <div>
+                      <strong className="font-bold">Location Error:</strong>
+                      <span className="block sm:inline"> {locationError}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => getUserGeolocation().catch(err => console.log("Retry geolocation failed:", err.message))}
+                    className="mt-3 md:mt-0 md:ml-4 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors duration-200 text-sm flex items-center"
+                  >
+                    <RefreshCw size={16} className="mr-2" /> Retry Location
+                  </button>
+                </div>
+              )}
 
               {loading && <p>Loading attendance history...</p>}
               {!loading && attendanceHistory.length === 0 && <p className="text-gray-600">No attendance history found.</p>}
@@ -1073,14 +1325,16 @@ const EmployeeDashboard = () => {
                         <th className="py-3 px-6 text-left">Time In</th>
                         <th className="py-3 px-6 text-left">Time Out</th>
                         <th className="py-3 px-6 text-left">Status</th>
+                        <th className="py-3 px-6 text-left">Info</th> {/* New column for Late/Overtime */}
+                        <th className="py-3 px-6 text-left">Location</th>
                       </tr>
                     </thead>
                     <tbody className="text-gray-700 text-sm font-light">
                       {attendanceHistory.map((record, index) => (
-                        <tr key={index} className="border-b border-gray-200 hover:bg-gray-50">
+                        <tr key={record._id || record.id || index} className="border-b border-gray-200 hover:bg-gray-50">
                           <td className="py-3 px-6 text-left whitespace-nowrap">{formatDate(record.date)}</td>
-                          <td className="py-3 px-6 text-left">{record.timeIn}</td>
-                          <td className="py-3 px-6 text-left">{record.timeOut}</td>
+                          <td className="py-3 px-6 text-left">{formatTime(record.timeIn)}</td>
+                          <td className="py-3 px-6 text-left">{formatTime(record.timeOut)}</td>
                           <td className="py-3 px-6 text-left">
                             <span className={`py-1 px-3 rounded-full text-xs font-medium ${
                               record.status === 'Present' ? 'bg-green-200 text-green-800' :
@@ -1089,6 +1343,17 @@ const EmployeeDashboard = () => {
                             }`}>
                               {record.status}
                             </span>
+                          </td>
+                          <td className="py-3 px-6 text-left">
+                            {record.isLate && <span className="py-1 px-3 rounded-full text-xs font-medium bg-orange-100 text-orange-800 mr-1">Late</span>}
+                            {record.isOvertime && <span className="py-1 px-3 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Overtime</span>}
+                            {/* If not late/overtime and present, explicitly show "On Time" */}
+                            {!record.isLate && !record.isOvertime && record.status === 'Present' && 'On Time'}
+                          </td>
+                          <td className="py-3 px-6 text-left">
+                            {record.latitude && record.longitude 
+                              ? `Lat: ${record.latitude.toFixed(4)}, Lon: ${record.longitude.toFixed(4)}`
+                              : (record.location || 'N/A')}
                           </td>
                         </tr>
                       ))}
@@ -1170,7 +1435,7 @@ const EmployeeDashboard = () => {
                     htmlFor="completedFileInput" 
                     className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center hover:bg-blue-600 transition-colors duration-200"
                   >
-                    <FaUpload className="mr-2" /> Choose File
+                    <Upload className="mr-2" size={16} /> Choose File {/* Replaced FaUpload */}
                   </label>
                   {completedFile && (
                     <div className="flex items-center text-slate-700">
@@ -1183,7 +1448,7 @@ const EmployeeDashboard = () => {
                         }}
                         className="ml-2 text-red-500 hover:text-red-700"
                       >
-                        <FaTimesCircle />
+                        <XCircle size={16} /> {/* Replaced FaTimesCircle */}
                       </button>
                     </div>
                   )}

@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 const attendanceSchema = new mongoose.Schema({
   employee: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Employee',
+    ref: 'User', // Changed from 'Employee' to 'User' as per attendanceController.js
     required: true
   },
   date: {
@@ -13,17 +13,25 @@ const attendanceSchema = new mongoose.Schema({
     default: Date.now
   },
   timeIn: {
-    type: String,
+    type: String, // Storing as ISO string to preserve full date/time
     required: true
   },
   timeOut: {
-    type: String,
+    type: String, // Storing as ISO string to preserve full date/time
     default: null
   },
   status: {
     type: String,
     enum: ['Present', 'Late', 'Absent', 'Vacation', 'Sick', 'Half-day'],
     default: 'Present'
+  },
+  isLate: { // New field for late clock-in status
+    type: Boolean,
+    default: false
+  },
+  isOvertime: { // New field for overtime clock-out status
+    type: Boolean,
+    default: false
   },
   notes: {
     type: String,
@@ -32,6 +40,14 @@ const attendanceSchema = new mongoose.Schema({
   location: {
     type: String,
     default: 'Office'
+  },
+  latitude: { // New field for latitude
+    type: Number,
+    default: null
+  },
+  longitude: { // New field for longitude
+    type: Number,
+    default: null
   },
   recordedByAdmin: {
     type: Boolean,
@@ -57,17 +73,25 @@ attendanceSchema.index({ employee: 1, date: 1 }, {
 // Add method to calculate duration when timeOut is provided
 attendanceSchema.methods.calculateDuration = function() {
   if (this.timeIn && this.timeOut && this.timeOut !== '-') {
-    const timeIn = new Date(`1970/01/01 ${this.timeIn}`);
-    const timeOut = new Date(`1970/01/01 ${this.timeOut}`);
+    const timeInDate = new Date(this.timeIn); // Parse ISO string
+    const timeOutDate = new Date(this.timeOut); // Parse ISO string
     
-    // Check if timeOut is before timeIn (which would mean crossing midnight)
-    if (timeOut < timeIn) {
-      timeOut.setDate(timeOut.getDate() + 1);
+    // IMPORTANT: Check if dates are valid before performing calculation
+    if (isNaN(timeInDate.getTime()) || isNaN(timeOutDate.getTime())) {
+      console.warn("Invalid date(s) found in attendance record for duration calculation.", { timeIn: this.timeIn, timeOut: this.timeOut });
+      this.duration = 0; // Set duration to 0 if dates are invalid
+      return 0;
     }
+
+    // Check if timeOut is before timeIn (which would mean crossing midnight)
+    // For simplicity, if timeOut is earlier on the same date, assume it's still for the same day.
+    // If actual overnight shifts are needed, the date field should also be considered.
+    // For now, assume timeIn is always before timeOut for a single day's attendance.
     
-    this.duration = Math.floor((timeOut - timeIn) / 60000); // Convert ms to minutes
+    this.duration = Math.floor((timeOutDate - timeInDate) / 60000); // Convert ms to minutes
     return this.duration;
   }
+  this.duration = 0; // Set duration to 0 if timeIn or timeOut are missing/invalid
   return 0;
 };
 

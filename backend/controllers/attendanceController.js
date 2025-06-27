@@ -4,159 +4,216 @@ import User from '../entities/User.js';
 import mongoose from 'mongoose';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 
-// Record attendance (clock in or clock out)
+// Configuration for allowed workspace location
+// IMPORTANT: Replace with your actual workspace coordinates and desired radius
+const WORKSPACE_LATITUDE = 27.6692;
+const WORKSPACE_LONGITUDE = 85.2693;
+const ALLOWED_RADIUS_METERS = 500;
+
+/**
+ * Calculates the distance between two sets of coordinates using the Haversine formula.
+ * @param {number} lat1 Latitude of point 1
+ * @param {number} lon1 Longitude of point 1
+ * @param {number} lat2 Latitude of point 2
+ * @param {number} lon2 Longitude of point 2
+ * @returns {number} Distance in meters
+ */
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3; // metres
+  const φ1 = lat1 * Math.PI / 180; // φ, λ in radians
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  const d = R * c; // in metres
+  return d;
+};
+
+
+// Record attendance (clock in)
 export const recordAttendance = async (req, res) => {
   try {
-    const { employeeId } = req.body;
+    const { employeeId, latitude, longitude, timeIn } = req.body; // Expect timeIn as ISO string
     
     // 🔍 EXTENSIVE DEBUGGING
-    console.log('🔍 === ATTENDANCE DEBUG START ===');
+    console.log('🔍 === CLOCK-IN ATTENDANCE DEBUG START ===');
     console.log('📝 Received employeeId:', employeeId);
     console.log('📝 employeeId type:', typeof employeeId);
     console.log('📝 employeeId length:', employeeId?.length);
+    console.log('📝 Received latitude:', latitude);
+    console.log('📝 Received longitude:', longitude);
+    console.log('📝 Received timeIn (ISO):', timeIn);
     
     // Validate request
     if (!employeeId) {
       console.log('❌ No employeeId provided');
       return res.status(400).json({ success: false, message: 'Employee ID is required' });
     }
+
+    if (latitude === undefined || longitude === undefined) {
+      console.log('❌ Geolocation (latitude, longitude) is required.');
+      return res.status(400).json({ success: false, message: 'Geolocation is required to record attendance.' });
+    }
+    
+    // Perform geolocation check
+    const distance = calculateDistance(
+      latitude, 
+      longitude, 
+      WORKSPACE_LATITUDE, 
+      WORKSPACE_LONGITUDE
+    );
+
+    console.log(`Calculated distance to workspace: ${distance.toFixed(2)} meters`);
+
+    if (distance > ALLOWED_RADIUS_METERS) {
+      console.log('❌ Employee is outside the allowed workspace area.');
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You are outside the designated workspace to record attendance. Distance from office: ' + distance.toFixed(2) + ' meters.' 
+      });
+    }
+    console.log('✅ Employee is within the allowed workspace area.');
     
     // 🔍 CHECK MONGODB CONNECTION
     console.log('🔗 MongoDB connection state:', mongoose.connection.readyState);
     console.log('🔗 MongoDB connection name:', mongoose.connection.name);
     
-    // 🔍 TEST DIFFERENT QUERY METHODS
-    console.log('🔍 Testing different query methods...');
-    
-    // Method 1: Direct findById
-    console.log('🔍 Method 1: Employee.findById()');
-    const employee1 = await User.findById(employeeId);
-    console.log('📄 findById result:', employee1 ? 'FOUND' : 'NOT FOUND');
-    if (employee1) console.log('📄 Employee1 data:', { id: employee1._id, name: employee1.name });
-    
-    // Method 2: findOne with _id
-    console.log('🔍 Method 2: Employee.findOne({_id: employeeId})');
-    const employee2 = await User.findOne({ _id: employeeId });
-    console.log('📄 findOne result:', employee2 ? 'FOUND' : 'NOT FOUND');
-    if (employee2) console.log('📄 Employee2 data:', { id: employee2._id, name: employee2.name });
-    
-    // Method 3: With ObjectId conversion
-    console.log('🔍 Method 3: With ObjectId conversion');
-    let employee3 = null;
-    try {
-      const objectId = new mongoose.Types.ObjectId(employeeId);
-      console.log('📄 Converted to ObjectId:', objectId);
-      employee3 = await User.findById(objectId);
-      console.log('📄 ObjectId findById result:', employee3 ? 'FOUND' : 'NOT FOUND');
-      if (employee3) console.log('📄 Employee3 data:', { id: employee3._id, name: employee3.name });
-    } catch (objIdError) {
-      console.log('❌ ObjectId conversion error:', objIdError.message);
-    }
-    
-    // 🔍 CHECK COLLECTION DIRECTLY
-    console.log('🔍 Checking collection directly...');
-    const collection = mongoose.connection.db.collection('employees'); // or 'users' if that's your collection
-    const directResult = await collection.findOne({ _id: new mongoose.Types.ObjectId(employeeId) });
-    console.log('📄 Direct collection query result:', directResult ? 'FOUND' : 'NOT FOUND');
-    if (directResult) console.log('📄 Direct result data:', { id: directResult._id, name: directResult.name });
-    
-    // 🔍 LIST ALL EMPLOYEES (first 5)
-    console.log('🔍 Sampling existing employees...');
-    const sampleEmployees = await User.find().limit(5);
-    console.log('📄 Sample employees in database:');
-    sampleEmployees.forEach((emp, index) => {
-      console.log(`   ${index + 1}. ID: ${emp._id}, Name: ${emp.name || emp.username}`);
-    });
-    
-    // 🔍 CHECK IF COLLECTION NAME IS CORRECT
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    console.log('📄 Available collections:');
-    collections.forEach(col => console.log(`   - ${col.name}`));
-    
     // Use the first successful employee query
-    const employee = employee1 || employee2 || employee3;
+    const employee = await User.findById(employeeId);
     
     if (!employee) {
       console.log('❌ FINAL RESULT: Employee not found with any method');
-      console.log('🔍 === ATTENDANCE DEBUG END ===');
+      console.log('🔍 === CLOCK-IN ATTENDANCE DEBUG END ===');
       return res.status(404).json({ success: false, message: 'Employee not found' });
     }
     
     console.log('✅ FINAL RESULT: Employee found!');
     console.log('📄 Employee details:', { id: employee._id, name: employee.name || employee.username });
-    console.log('🔍 === ATTENDANCE DEBUG END ===');
     
-    // 🔍 CONTINUE WITH NORMAL ATTENDANCE LOGIC...
-    
-    // Get current date (without time)
-    const today = new Date();
+    // Get current date (without time for unique daily record check)
+    const today = new Date(timeIn); // Use timeIn provided from frontend to determine the date
     const currentDate = startOfDay(today);
     const endDate = endOfDay(today);
     
-    // Format current time
-    const currentTime = format(today, 'hh:mm a');
-    
-    // Find attendance record for today
+    // Check if an attendance record already exists for today (prevents duplicate clock-ins for the same day)
     let attendance = await Attendance.findOne({
       employee: employeeId,
       date: { $gte: currentDate, $lte: endDate }
     });
     
-    // If no record exists, create a new one (clock in)
-    if (!attendance) {
-      attendance = new Attendance({
-        employee: employeeId,
-        date: today,
-        timeIn: currentTime,
-        status: today.getHours() >= 9 && today.getMinutes() > 15 ? 'Late' : 'Present'
-      });
-      
-      await attendance.save();
-      
-      return res.status(201).json({
-        success: true,
-        message: 'Clocked in successfully',
-        data: {
-          timeIn: attendance.timeIn,
-          timeOut: '-',
-          status: attendance.status
-        }
-      });
-    } 
-    // If record exists but no timeOut, update it (clock out)
-    else if (!attendance.timeOut || attendance.timeOut === '-' || attendance.timeOut === null) {
-      attendance.timeOut = currentTime;
-      
-      // Calculate duration
-      attendance.calculateDuration();
-      
-      await attendance.save();
-      
-      return res.status(200).json({
-        success: true,
-        message: 'Clocked out successfully',
-        data: {
-          timeIn: attendance.timeIn,
-          timeOut: attendance.timeOut,
-          status: attendance.status,
-          duration: attendance.duration
-        }
-      });
-    } 
-    // If already clocked in and out
-    else {
-      return res.status(400).json({
-        success: false,
-        message: 'Already clocked in and out for today',
-        data: {
-          timeIn: attendance.timeIn,
-          timeOut: attendance.timeOut,
-          status: attendance.status
-        }
-      });
+    if (attendance) {
+      // If a record exists and already has a timeIn but no timeOut, it means they are currently clocked in.
+      if (attendance.timeIn && (!attendance.timeOut || attendance.timeOut === null)) {
+        console.log('Attempted clock-in but employee is already clocked in for today.');
+        return res.status(400).json({
+          success: false,
+          message: 'Already clocked in for today. Please clock out first.',
+          data: attendance // Return current state
+        });
+      } else if (attendance.timeIn && attendance.timeOut) {
+        // If they clocked in and out today already
+        console.log('Attempted clock-in but employee already clocked in and out for today.');
+        return res.status(400).json({
+          success: false,
+          message: 'Already clocked in and out for today.',
+          data: attendance
+        });
+      }
     }
+
+    // Determine if late (clock-in outside 7 AM to 9:59 AM window)
+    const clockInDateTime = new Date(timeIn);
+    // User wants 1 AM to be late. If standard work starts at 9 AM,
+    // then anything before 7 AM or at/after 10 AM is 'late'.
+    const isLate = (clockInDateTime.getHours() < 7 || clockInDateTime.getHours() >= 10);
+
+    // Create new attendance record (clock in)
+    attendance = new Attendance({
+      employee: employeeId,
+      date: currentDate, // Store just the date part for unique index
+      timeIn: timeIn, // Store the full ISO string for exact time
+      status: isLate ? 'Late' : 'Present', // Set status based on isLate
+      isLate: isLate, // Store isLate flag
+      latitude: latitude,
+      longitude: longitude
+    });
+    
+    await attendance.save();
+    
+    console.log('✅ Clocked in successfully. Status:', attendance.status);
+    console.log('🔍 === CLOCK-IN ATTENDANCE DEBUG END ===');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Clocked in successfully',
+      data: attendance // Return the full attendance object
+    });
+
   } catch (error) {
-    console.error('❌ Error recording attendance:', error);
+    console.error('❌ Error recording clock-in attendance:', error);
+    console.error('📄 Error stack:', error.stack);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// Update attendance (clock out)
+export const updateAttendance = async (req, res) => {
+  try {
+    const { id } = req.params; // Attendance record ID
+    const { timeOut } = req.body; // Expected timeOut as ISO string
+
+    console.log('🔍 === CLOCK-OUT ATTENDANCE DEBUG START ===');
+    console.log('📝 Received attendance ID:', id);
+    console.log('📝 Received timeOut (ISO):', timeOut);
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Attendance record ID is required for update.' });
+    }
+    if (!timeOut) {
+      return res.status(400).json({ success: false, message: 'Clock out time is required.' });
+    }
+
+    let attendance = await Attendance.findById(id);
+
+    if (!attendance) {
+      console.log('❌ Attendance record not found for ID:', id);
+      return res.status(404).json({ success: false, message: 'Attendance record not found.' });
+    }
+
+    if (attendance.timeOut && attendance.timeOut !== null) {
+      console.log('❌ Employee already clocked out for this record.');
+      return res.status(400).json({ success: false, message: 'Employee already clocked out for this record.' });
+    }
+
+    // Update timeOut and recalculate duration
+    attendance.timeOut = timeOut; // Store the full ISO string
+    attendance.calculateDuration(); // Calculate duration based on timeIn and timeOut
+
+    // Determine if overtime based on duration (e.g., > 8 hours or 480 minutes)
+    // Assuming standard workday is 8 hours (480 minutes)
+    const STANDARD_WORK_HOURS_MINUTES = 8 * 60; 
+    const isOvertime = attendance.duration > STANDARD_WORK_HOURS_MINUTES;
+
+    attendance.isOvertime = isOvertime; // Store isOvertime flag
+
+    await attendance.save();
+
+    console.log('✅ Clocked out successfully. Duration:', attendance.duration, 'minutes. Overtime:', attendance.isOvertime);
+    console.log('🔍 === CLOCK-OUT ATTENDANCE DEBUG END ===');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Clocked out successfully',
+      data: attendance // Return the updated attendance object
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating attendance (clock-out):', error);
     console.error('📄 Error stack:', error.stack);
     res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
@@ -165,7 +222,7 @@ export const recordAttendance = async (req, res) => {
 
 export const createManualAttendance = async (req, res) => {
   try {
-    const { employeeId, date, timeIn, timeOut, status } = req.body;
+    const { employeeId, date, timeIn, timeOut, status, latitude, longitude } = req.body; // Removed isLate, isOvertime from destructuring, as they'll be calculated
     
     console.log('=== Manual Attendance Creation ===');
     console.log('Request body:', req.body);
@@ -190,54 +247,73 @@ export const createManualAttendance = async (req, res) => {
     
     // Parse the date and create start/end of day for comparison
     const attendanceDate = new Date(date);
-    const startOfDay = new Date(attendanceDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(attendanceDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    attendanceDate.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
     
-    // Check if attendance already exists for this date
-    const existingAttendance = await Attendance.findOne({
-      employeeId,
+    const startOfDayQuery = new Date(attendanceDate);
+    const endOfDayQuery = new Date(attendanceDate);
+    endOfDayQuery.setHours(23, 59, 59, 999);
+    
+    // Check if attendance already exists for this date for this employee
+    let existingAttendance = await Attendance.findOne({
+      employee: employeeId, // Correctly use 'employee' field
       date: {
-        $gte: startOfDay,
-        $lte: endOfDay
+        $gte: startOfDayQuery,
+        $lte: endOfDayQuery
       }
     });
+    
+    // Convert timeIn/timeOut strings to Date objects for calculations
+    const parseTimeString = (dateObj, timeStr) => {
+      if (!timeStr) return null;
+      // Combine the date part from attendanceDate with the time part from timeStr
+      // For manual entries, timeStr might be "HH:MM" or "HH:MM AM/PM"
+      // Attempt to parse directly, then fallback to combining if necessary
+      const fullDateTime = new Date(`${format(dateObj, 'yyyy-MM-dd')}T${timeStr}`);
+      if (!isNaN(fullDateTime.getTime())) {
+          return fullDateTime;
+      }
+      // Fallback for formats like "HH:MM AM/PM" not directly parsable with 'T'
+      const [hour, minute] = timeStr.split(':');
+      const newDate = new Date(dateObj); // Clone the date to avoid mutation
+      newDate.setHours(parseInt(hour), parseInt(minute), 0, 0);
+      return newDate;
+    };
+
+    const clockInDateTime = parseTimeString(attendanceDate, timeIn);
+    const clockOutDateTime = parseTimeString(attendanceDate, timeOut); // Will be null if timeOut not provided
+
+    // Calculate isLate based on clockInDateTime
+    const calculatedIsLate = (clockInDateTime && (clockInDateTime.getHours() < 7 || clockInDateTime.getHours() >= 10));
+
+    // Calculate duration in minutes for overtime calculation
+    let durationMinutes = 0;
+    if (clockInDateTime && clockOutDateTime && clockOutDateTime > clockInDateTime) {
+      durationMinutes = Math.floor((clockOutDateTime - clockInDateTime) / 60000);
+    }
+    
+    // Calculate isOvertime based on duration
+    const STANDARD_WORK_HOURS_MINUTES = 8 * 60; 
+    const calculatedIsOvertime = durationMinutes > STANDARD_WORK_HOURS_MINUTES;
+
     
     if (existingAttendance) {
       // Update existing attendance record
       console.log('Updating existing attendance record:', existingAttendance._id);
       
-      // Parse time strings and create proper datetime objects
-      const [inHour, inMinute] = timeIn.split(':');
-      const clockInTime = new Date(attendanceDate);
-      clockInTime.setHours(parseInt(inHour), parseInt(inMinute), 0, 0);
-      
-      let clockOutTime = null;
-      if (timeOut) {
-        const [outHour, outMinute] = timeOut.split(':');
-        clockOutTime = new Date(attendanceDate);
-        clockOutTime.setHours(parseInt(outHour), parseInt(outMinute), 0, 0);
-      }
-      
-      // Calculate hours worked if both times are provided
-      let hoursWorked = 0;
-      if (clockOutTime && clockInTime) {
-        hoursWorked = (clockOutTime - clockInTime) / (1000 * 60 * 60); // Convert to hours
-      }
-      
-      // Update the existing record
-      existingAttendance.clockIn = clockInTime;
-      existingAttendance.clockOut = clockOutTime;
+      existingAttendance.timeIn = timeIn; // Store original string
+      existingAttendance.timeOut = timeOut; // Store original string
       existingAttendance.status = status;
-      existingAttendance.hoursWorked = hoursWorked;
-      existingAttendance.isManualEntry = true;
-      existingAttendance.enteredBy = req.user.id; // Track who made the manual entry
+      existingAttendance.isLate = calculatedIsLate; // Update isLate
+      existingAttendance.isOvertime = calculatedIsOvertime; // Update isOvertime
+      existingAttendance.duration = durationMinutes; 
+      existingAttendance.latitude = latitude || existingAttendance.latitude; 
+      existingAttendance.longitude = longitude || existingAttendance.longitude; 
+      existingAttendance.recordedByAdmin = true; 
       existingAttendance.updatedAt = new Date();
       
       await existingAttendance.save();
       
-      console.log('✅ Attendance record updated successfully');
+      console.log('✅ Attendance record updated successfully (Manual)');
       
       return res.status(200).json({
         success: true,
@@ -247,43 +323,25 @@ export const createManualAttendance = async (req, res) => {
       
     } else {
       // Create new attendance record
-      console.log('Creating new attendance record for date:', date);
+      console.log('Creating new attendance record for date (Manual):', date);
       
-      // Parse time strings and create proper datetime objects
-      const [inHour, inMinute] = timeIn.split(':');
-      const clockInTime = new Date(attendanceDate);
-      clockInTime.setHours(parseInt(inHour), parseInt(inMinute), 0, 0);
-      
-      let clockOutTime = null;
-      if (timeOut) {
-        const [outHour, outMinute] = timeOut.split(':');
-        clockOutTime = new Date(attendanceDate);
-        clockOutTime.setHours(parseInt(outHour), parseInt(outMinute), 0, 0);
-      }
-      
-      // Calculate hours worked if both times are provided
-      let hoursWorked = 0;
-      if (clockOutTime && clockInTime) {
-        hoursWorked = (clockOutTime - clockInTime) / (1000 * 60 * 60); // Convert to hours
-      }
-      
-      // Create new attendance record
       const newAttendance = new Attendance({
-        employeeId,
-        date: attendanceDate,
-        clockIn: clockInTime,
-        clockOut: clockOutTime,
+        employee: employeeId, 
+        date: attendanceDate, // Store normalized date
+        timeIn: timeIn, // Store original string
+        timeOut: timeOut, // Store original string
         status,
-        hoursWorked,
-        isManualEntry: true,
-        enteredBy: req.user.id, // Track who made the manual entry
-        createdAt: new Date(),
-        updatedAt: new Date()
+        isLate: calculatedIsLate, // Set isLate
+        isOvertime: calculatedIsOvertime, // Set isOvertime
+        duration: durationMinutes,
+        latitude,
+        longitude,
+        recordedByAdmin: true,
       });
       
       await newAttendance.save();
       
-      console.log('✅ New attendance record created successfully');
+      console.log('✅ New attendance record created successfully (Manual)');
       
       return res.status(201).json({
         success: true,
@@ -352,12 +410,16 @@ export const getEmployeeAttendance = async (req, res) => {
     // Format attendance records for frontend
     const formattedRecords = attendanceRecords.map(record => ({
       id: record._id,
-      date: format(record.date, 'MMM dd, yyyy'),
-      timeIn: record.timeIn || '-',
-      timeOut: record.timeOut || '-',
+      date: format(record.date, 'MMM dd, yyyy'), // Ensure date format is consistent
+      timeIn: record.timeIn || null, // Ensure null if not set
+      timeOut: record.timeOut || null, // Ensure null if not set
       status: record.status,
+      isLate: record.isLate, // Include isLate from DB
+      isOvertime: record.isOvertime, // Include isOvertime from DB
       duration: record.duration,
-      notes: record.notes
+      notes: record.notes,
+      latitude: record.latitude, // Include latitude
+      longitude: record.longitude // Include longitude
     }));
     
     res.status(200).json({
@@ -404,11 +466,15 @@ export const getTodayAttendance = async (req, res) => {
       success: true,
       data: {
         id: attendance._id,
-        date: format(attendance.date, 'MMM dd, yyyy'),
-        timeIn: attendance.timeIn || '-',
-        timeOut: attendance.timeOut || '-',
+        date: format(attendance.date, 'MMM dd, yyyy'), // Ensure date format is consistent
+        timeIn: attendance.timeIn || null,
+        timeOut: attendance.timeOut || null,
         status: attendance.status,
-        duration: attendance.duration
+        isLate: attendance.isLate, // Include isLate
+        isOvertime: attendance.isOvertime, // Include isOvertime
+        duration: attendance.duration,
+        latitude: attendance.latitude,
+        longitude: attendance.longitude
       }
     });
   } catch (error) {
@@ -449,7 +515,7 @@ export const getAllAttendance = async (req, res) => {
         employeeQuery.name = { $regex: employeeName, $options: 'i' };
       }
       
-      const employees = await Employee.find(employeeQuery).select('_id');
+      const employees = await User.find(employeeQuery).select('_id'); // Assuming 'User' is your employee model
       const employeeIds = employees.map(emp => emp._id);
       
       query.employee = { $in: employeeIds };
@@ -475,12 +541,16 @@ export const getAllAttendance = async (req, res) => {
       department: record.employee.department,
       position: record.employee.position,
       date: format(record.date, 'MMM dd, yyyy'),
-      timeIn: record.timeIn || '-',
-      timeOut: record.timeOut || '-',
+      timeIn: record.timeIn || null,
+      timeOut: record.timeOut || null,
       status: record.status,
+      isLate: record.isLate, // Include isLate
+      isOvertime: record.isOvertime, // Include isOvertime
       duration: record.duration,
       notes: record.notes,
-      location: record.location
+      location: record.location,
+      latitude: record.latitude,
+      longitude: record.longitude
     }));
     
     res.status(200).json({
@@ -497,12 +567,12 @@ export const getAllAttendance = async (req, res) => {
   }
 };
 
-// For admin: Mark employee as absent, on vacation, sick, etc.
+// For admin: Mark employee as absent, on vacation, sick, etc. (existing function)
 export const updateAttendanceStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
-    
+    const { status, notes, latitude, longitude } = req.body; // Added lat/lon to update
+
     // Validate status
     const validStatuses = ['Present', 'Late', 'Absent', 'Vacation', 'Sick', 'Half-day'];
     if (!validStatuses.includes(status)) {
@@ -527,12 +597,22 @@ export const updateAttendanceStatus = async (req, res) => {
     if (notes) {
       attendance.notes = notes;
     }
+
+    // Update latitude and longitude if provided (for manual edits by admin)
+    if (latitude !== undefined) {
+      attendance.latitude = latitude;
+    }
+    if (longitude !== undefined) {
+      attendance.longitude = longitude;
+    }
     
-    // If marking as absent, clear timeIn/timeOut
+    // If marking as absent, clear timeIn/timeOut and flags
     if (status === 'Absent') {
-      attendance.timeIn = '-';
-      attendance.timeOut = '-';
+      attendance.timeIn = null; // Set to null
+      attendance.timeOut = null; // Set to null
       attendance.duration = 0;
+      attendance.isLate = false;
+      attendance.isOvertime = false;
     }
     
     await attendance.save();
@@ -549,9 +629,11 @@ export const updateAttendanceStatus = async (req, res) => {
 };
 
 export default {
-  recordAttendance,
+  recordAttendance, // Clock-in
+  updateAttendance,   // Clock-out (new)
   getEmployeeAttendance,
   getTodayAttendance,
   getAllAttendance,
-  updateAttendanceStatus
+  updateAttendanceStatus,
+  createManualAttendance
 };
