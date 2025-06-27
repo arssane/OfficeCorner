@@ -3,6 +3,7 @@ import Task from '../entities/Task.js';
 
 export const getAllTasks = async (req, res) => {
   try {
+    // Populate assignedTo and include file URLs
     const tasks = await Task.find().populate('assignedTo', 'username name');
     res.status(200).json(tasks);
   } catch (error) {
@@ -13,6 +14,7 @@ export const getAllTasks = async (req, res) => {
 
 export const getTaskById = async (req, res) => {
   try {
+    // Populate assignedTo and include file URLs
     const task = await Task.findById(req.params.id).populate('assignedTo', 'username name');
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
@@ -26,6 +28,7 @@ export const getTaskById = async (req, res) => {
 
 export const getTasksByEmployee = async (req, res) => {
   try {
+    // Populate assignedTo and include file URLs
     const employeeTasks = await Task.find({ assignedTo: req.params.employeeId }).populate('assignedTo', 'username name');
     res.status(200).json(employeeTasks);
   } catch (error) {
@@ -44,7 +47,7 @@ export const updateTask = async (req, res) => {
       return res.status(404).json({ message: 'Task not found' });
     }
     
-    // Prepare update data
+    // Prepare update data including file URLs
     const updateData = {
       ...req.body,
       updatedAt: new Date()
@@ -100,6 +103,7 @@ export const deleteTask = async (req, res) => {
 export const createTask = async (req, res) => {
   try {
     // Add createdAt and updatedAt timestamps
+    // Also include assignedFile if present in req.body
     const taskData = {
       ...req.body,
       createdAt: new Date(),

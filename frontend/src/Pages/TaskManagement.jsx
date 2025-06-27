@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaEdit, FaTrash, FaSync, FaPlus, FaClock, FaUser, FaFlag, FaCheck } from "react-icons/fa";
+import { FaEdit, FaTrash, FaSync, FaPlus, FaClock, FaUser, FaFlag, FaCheck, FaPaperclip, FaUpload, FaTimesCircle } from "react-icons/fa"; // Added FaPaperclip, FaUpload, FaTimesCircle
 
 const TaskManagement = () => {
   // Initialize state from localStorage if available
@@ -41,7 +41,12 @@ const TaskManagement = () => {
     priority: "medium",
     assignedTo: "",
     status: "pending",
+    assignedFile: null, // New state for assigned file URL
   });
+
+  const [assignedFile, setAssignedFile] = useState(null); // For handling the file object to upload
+  const [uploadingFile, setUploadingFile] = useState(false); // To show loading state for file upload
+
 
   // Save tasks to localStorage whenever they change
   useEffect(() => {
@@ -450,30 +455,99 @@ const TaskManagement = () => {
     }
   };
 
+  // Handle file input change for assigned file
+  const handleAssignedFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setAssignedFile(file);
+      // It's better to store just the file object here, not the name,
+      // as the actual URL will come from Cloudinary.
+      // Keeping the file name in newTask.assignedFile for display is fine for now.
+      setNewTask(prev => ({ ...prev, assignedFile: file.name })); 
+    } else {
+      setAssignedFile(null);
+      setNewTask(prev => ({ ...prev, assignedFile: null }));
+    }
+  };
+
+  // Upload file to Cloudinary
+  const uploadFileToCloudinary = async (file) => {
+    if (!file) return null;
+
+    setUploadingFile(true);
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("Authentication token not found. Please log in first.");
+      setUploadingFile(false);
+      return null;
+    }
+
+    const uploadUrl = `${currentApiBaseUrl}/files/upload`;
+    console.log("Attempting file upload to:", uploadUrl); // Log the upload URL
+
+    const formData = new FormData();
+    formData.append('file', file); // 'file' is the field name expected by Multer
+
+    try {
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // 'Content-Type' is not set for FormData, it's handled automatically by the browser
+        },
+        body: formData,
+        signal: AbortSignal.timeout(60000) // Longer timeout for file uploads
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setError(null); // Clear any previous file upload errors
+        console.log("File uploaded successfully:", data.url);
+        return data.url; // Return the Cloudinary URL
+      } else {
+        const errorData = await response.json();
+        const errorMessage = errorData.message || response.statusText || 'Unknown error during upload';
+        setError(`File upload failed: ${errorMessage}. Status: ${response.status}`);
+        console.error("File upload failed with response:", errorData);
+        return null;
+      }
+    } catch (err) {
+      setError(`File upload network error: ${err.message}. Please check your connection or server.`);
+      console.error("File upload caught an error:", err);
+      return null;
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+
   // Create a new task
   const handleAddTask = async () => {
     try {
       const token = localStorage.getItem("token");
       
       if (!token) {
-        // If not authenticated, just add to local tasks
-        const newTaskWithId = {
-          ...newTask,
-          id: Date.now().toString() // Generate a temporary ID
-        };
-        setTasks([...tasks, newTaskWithId]);
-        setIsAddOpen(false);
-        setNewTask({
-          title: "",
-          description: "",
-          deadline: "",
-          priority: "medium",
-          assignedTo: "",
-          status: "pending",
-        });
+        setError("Not authenticated. Please log in to add tasks.");
         return;
       }
-      
+
+      setLoading(true); // Start general loading for task creation
+
+      let fileUrl = null;
+      if (assignedFile) {
+        fileUrl = await uploadFileToCloudinary(assignedFile);
+        if (!fileUrl) {
+          setError("Failed to upload assigned file. Task not created."); // Specific error message
+          setLoading(false); // Ensure loading is off
+          return; // Stop function execution if file upload fails
+        }
+      }
+
+      const taskDataToSend = {
+        ...newTask,
+        assignedFile: fileUrl, // Use the URL obtained from Cloudinary
+      };
+
       const response = await fetch(getTaskEndpoint(), {
         method: 'POST',
         headers: {
@@ -481,21 +555,19 @@ const TaskManagement = () => {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(newTask),
+        body: JSON.stringify(taskDataToSend), // Send task data with file URL
         signal: AbortSignal.timeout(10000)
-      }).catch(err => {
-        // If API fails, add task locally
-        const newTaskWithId = {
-          ...newTask,
-          id: Date.now().toString()
-        };
-        setTasks([...tasks, newTaskWithId]);
-        throw err;
       });
       
       if (response && response.ok) {
         const data = await response.json();
         setTasks([...tasks, data]);
+        setError(null); // Clear any previous errors
+        console.log("Task created successfully:", data);
+      } else {
+        const errorData = await response.json();
+        setError(`Failed to create task: ${errorData.message || response.statusText}. Status: ${response.status}`);
+        console.error("Task creation failed with response:", errorData);
       }
       
       setIsAddOpen(false);
@@ -506,9 +578,14 @@ const TaskManagement = () => {
         priority: "medium",
         assignedTo: "",
         status: "pending",
+        assignedFile: null,
       });
+      setAssignedFile(null); // Clear file input state
     } catch (err) {
-      setError(`Failed to create task on server: ${err.message}. Task was saved locally.`);
+      setError(`Failed to create task: ${err.message}. Please check server logs for details.`);
+      console.error("Error during task creation (caught by handleAddTask):", err);
+    } finally {
+      setLoading(false); // Ensure loading is always turned off
     }
   };
 
@@ -818,6 +895,7 @@ const TaskManagement = () => {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Due Date</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Priority</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Files</th> {/* New column */}
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -865,6 +943,38 @@ const TaskManagement = () => {
                           {task.status === "completed" && <FaCheck className="mr-1" />}
                           {task.status.charAt(0).toUpperCase() + task.status.slice(1).replace('-', ' ')}
                         </span>
+                      </td>
+                      {/* New Files column */}
+                      <td className="px-6 py-4 text-sm text-slate-700">
+                        {task.assignedFile && (
+                          <div className="flex items-center mb-1">
+                            <FaPaperclip className="mr-2 text-blue-500" />
+                            <a 
+                              href={task.assignedFile} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-blue-600 hover:underline"
+                            >
+                              Assigned File
+                            </a>
+                          </div>
+                        )}
+                        {task.completedFile && (
+                          <div className="flex items-center">
+                            <FaCheck className="mr-2 text-emerald-500" />
+                            <a 
+                              href={task.completedFile} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-emerald-600 hover:underline"
+                            >
+                              Completed File
+                            </a>
+                          </div>
+                        )}
+                        {!task.assignedFile && !task.completedFile && (
+                          <span>No Files</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex space-x-2">
@@ -979,20 +1089,72 @@ const TaskManagement = () => {
                     <option value="completed">Completed</option>
                   </select>
                 </div>
+
+                {/* File Input for Assigned File */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Assigned File (Optional)</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="file"
+                      id="assignedFileInput"
+                      className="hidden" // Hide default file input
+                      onChange={handleAssignedFileChange}
+                    />
+                    <label 
+                      htmlFor="assignedFileInput" 
+                      className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center hover:bg-blue-600 transition-colors duration-200"
+                    >
+                      <FaUpload className="mr-2" /> Choose File
+                    </label>
+                    {assignedFile && (
+                      <div className="flex items-center text-slate-700">
+                        <span>{assignedFile.name}</span>
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setAssignedFile(null);
+                            setNewTask(prev => ({ ...prev, assignedFile: null }));
+                            document.getElementById('assignedFileInput').value = ''; // Clear file input value
+                          }}
+                          className="ml-2 text-red-500 hover:text-red-700"
+                        >
+                          <FaTimesCircle />
+                        </button>
+                      </div>
+                    )}
+                    {uploadingFile && (
+                      <span className="text-blue-500 text-sm">Uploading...</span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">Max 5MB. Allowed: images, PDFs, Word, Excel, PowerPoint, text files.</p>
+                </div>
               </div>
               
               <div className="p-6 bg-slate-50 rounded-b-2xl flex gap-3">
                 <button
                   className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
-                  onClick={() => setIsAddOpen(false)}
+                  onClick={() => {
+                    setIsAddOpen(false);
+                    setAssignedFile(null); // Clear file input on modal close
+                    setNewTask({
+                      title: "",
+                      description: "",
+                      deadline: "",
+                      priority: "medium",
+                      assignedTo: "",
+                      status: "pending",
+                      assignedFile: null,
+                    });
+                  }}
                 >
                   Cancel
                 </button>
                 <button
-                  className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg"
+                  className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleAddTask}
+                  disabled={uploadingFile} // Disable button while uploading
                 >
-                  Add Task
+                  {uploadingFile ? 'Adding & Uploading...' : 'Add Task'}
                 </button>
               </div>
             </div>
@@ -1057,7 +1219,7 @@ const TaskManagement = () => {
                   <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
                   <select
                     className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                    value={taskToEdit.assignedTo}
+                    value={typeof taskToEdit.assignedTo === 'object' ? taskToEdit.assignedTo._id : taskToEdit.assignedTo}
                     onChange={(e) => setTaskToEdit({ ...taskToEdit, assignedTo: e.target.value })}
                   >
                     <option value="">Select Employee</option>
@@ -1082,6 +1244,37 @@ const TaskManagement = () => {
                     <option value="completed">Completed</option>
                   </select>
                 </div>
+                
+                {/* Display current Assigned File */}
+                {taskToEdit.assignedFile && (
+                  <div className="flex items-center mt-2">
+                    <FaPaperclip className="mr-2 text-blue-500" />
+                    <span className="text-sm text-slate-700 mr-2">Current Assigned File:</span>
+                    <a 
+                      href={taskToEdit.assignedFile} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-blue-600 hover:underline text-sm"
+                    >
+                      View File
+                    </a>
+                  </div>
+                )}
+                {/* Display current Completed File */}
+                {taskToEdit.completedFile && (
+                  <div className="flex items-center mt-2">
+                    <FaCheck className="mr-2 text-emerald-500" />
+                    <span className="text-sm text-slate-700 mr-2">Current Completed File:</span>
+                    <a 
+                      href={taskToEdit.completedFile} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-emerald-600 hover:underline text-sm"
+                    >
+                      View File
+                    </a>
+                  </div>
+                )}
               </div>
               
               <div className="p-6 bg-slate-50 rounded-b-2xl flex gap-3">

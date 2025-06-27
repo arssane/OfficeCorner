@@ -27,6 +27,16 @@ const taskSchema = new mongoose.Schema({
     ref: 'User',
     required: false
   },
+  // New field for file assigned by admin
+  assignedFile: {
+    type: String, // Store Cloudinary URL
+    default: null
+  },
+  // New field for file uploaded by employee upon completion
+  completedFile: {
+    type: String, // Store Cloudinary URL
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

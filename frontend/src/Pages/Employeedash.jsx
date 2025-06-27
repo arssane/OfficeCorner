@@ -4,6 +4,8 @@ import axios from 'axios';
 import CalendarPlanning from './CalendarPlanning';
 import { GrView } from "react-icons/gr";
 import { Link, useNavigate } from 'react-router-dom';
+// Ensure FaCheck is imported here along with other icons
+import { FaPaperclip, FaUpload, FaTimesCircle, FaCheckCircle, FaCheck } from "react-icons/fa"; 
 
 const EmployeeDashboard = () => {
   const navigate = useNavigate();
@@ -18,6 +20,13 @@ const EmployeeDashboard = () => {
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  
+  // New state for completed file upload
+  const [completedFile, setCompletedFile] = useState(null);
+  const [uploadingCompletedFile, setUploadingCompletedFile] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [taskToComplete, setTaskToComplete] = useState(null);
+
 
   // Attendance State
   const [attendanceHistory, setAttendanceHistory] = useState([
@@ -484,6 +493,56 @@ const EmployeeDashboard = () => {
     }
   };
 
+  // Handle file input change for completed file
+  const handleCompletedFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setCompletedFile(file);
+    } else {
+      setCompletedFile(null);
+    }
+  };
+
+  // Upload file to Cloudinary (reused from TaskManagement, but here for employee)
+  const uploadFileToCloudinary = async (file) => {
+    if (!file) return null;
+
+    setUploadingCompletedFile(true);
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("Authentication token not found. Please log in first.");
+      setUploadingCompletedFile(false);
+      return null;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file); // 'file' is the field name expected by Multer
+
+    try {
+      const response = await axios.post(`${getApiBaseUrl()}/files/upload`, formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // 'Content-Type' is not set for FormData, handled automatically by axios
+        },
+        timeout: 60000 // Longer timeout for file uploads
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        setError(null);
+        return response.data.url; // Return the Cloudinary URL
+      } else {
+        setError(`File upload failed: ${response.data.message || response.statusText}`);
+        return null;
+      }
+    } catch (err) {
+      setError(`File upload network error: ${err.message}`);
+      return null;
+    } finally {
+      setUploadingCompletedFile(false);
+    }
+  };
+
+
   // Manual refresh function
   const handleManualRefresh = async () => {
     if (currentEmployee) {
@@ -492,7 +551,7 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // Update task status
+  // Update task status, now including file upload for completion
   const updateTaskStatus = async (taskId, newStatus) => {
     if (!checkAuthStatus()) return;
 
@@ -514,13 +573,20 @@ const EmployeeDashboard = () => {
         return;
       }
 
-      // Store original task for rollback
-      const originalTask = { ...taskToUpdate };
+      // If status is 'Completed' and there's a file to upload
+      let fileUrl = null;
+      if (newStatus === 'completed' && completedFile) {
+        fileUrl = await uploadFileToCloudinary(completedFile);
+        if (!fileUrl) {
+          setError("Failed to upload completion file. Task status not updated.");
+          return; // Stop if file upload fails
+        }
+      }
 
       const updateData = {
         status: newStatus,
         updatedAt: new Date().toISOString(),
-        // Include other important fields that might be required
+        completedFile: fileUrl || taskToUpdate.completedFile, // Include new or existing file URL
         title: taskToUpdate.title,
         description: taskToUpdate.description,
         priority: taskToUpdate.priority,
@@ -534,28 +600,25 @@ const EmployeeDashboard = () => {
           const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
                           (task._id && task._id.toString() === taskId.toString());
           return taskMatch
-            ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
+            ? { ...task, status: newStatus, completedFile: updateData.completedFile, updatedAt: new Date().toISOString() }
             : task;
         })
       );
 
       const baseEndpoint = getTaskEndpoint();
       
-      // Try different endpoint patterns based on your TaskManagement.jsx
       const possibleEndpoints = [
-        `${baseEndpoint}/${taskId}`,           // Standard REST pattern
-        `${baseEndpoint}/update/${taskId}`,    // Update specific endpoint
-        `${baseEndpoint}/${taskId}/status`,    // Status specific endpoint
-        `${baseEndpoint}/${taskId}/update`,    // Alternative update pattern
+        `${baseEndpoint}/${taskId}`,
+        `${baseEndpoint}/update/${taskId}`,
+        `${baseEndpoint}/${taskId}/status`,
+        `${baseEndpoint}/${taskId}/update`,
       ];
 
       let updateSuccess = false;
       let lastError = null;
-      let updatedTaskData = null;
 
-      // Try different HTTP methods and endpoints
       for (const endpoint of possibleEndpoints) {
-        for (const method of ['put', 'patch']) { // Remove 'post' as it's not standard for updates
+        for (const method of ['put', 'patch']) {
           try {
             console.log(`Attempting ${method.toUpperCase()} to ${endpoint}`);
             
@@ -565,13 +628,12 @@ const EmployeeDashboard = () => {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
               },
-              timeout: 15000 // Increased timeout
+              timeout: 15000
             });
 
             if (response.status >= 200 && response.status < 300) {
               console.log(`Success with ${method.toUpperCase()} ${endpoint}:`, response.data);
               updateSuccess = true;
-              updatedTaskData = response.data;
               
               // Update with server response data
               if (response.data && (response.data.task || response.data.id || response.data._id)) {
@@ -588,8 +650,6 @@ const EmployeeDashboard = () => {
           } catch (err) {
             console.log(`Failed ${method.toUpperCase()} ${endpoint}:`, err.message);
             lastError = err;
-            
-            // If it's a 401, don't continue trying other endpoints
             if (err.response && err.response.status === 401) {
               throw err;
             }
@@ -604,6 +664,9 @@ const EmployeeDashboard = () => {
       }
 
       alert(`Task marked as ${newStatus.replace('-', ' ')}`);
+      setCompletedFile(null); // Clear file input after successful completion
+      setShowCompletionModal(false); // Close completion modal
+      setTaskToComplete(null);
       
       // Optionally refresh tasks from server to ensure consistency
       setTimeout(() => {
@@ -648,7 +711,7 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // Modal handlers
+  // Modal handlers for task details
   const handleOpenModal = (task) => {
     setSelectedTask(task);
     setIsModalOpen(true);
@@ -659,10 +722,30 @@ const EmployeeDashboard = () => {
     setSelectedTask(null);
   };
 
+  // Modal handlers for completion
+  const handleOpenCompletionModal = (task) => {
+    setTaskToComplete(task);
+    setCompletedFile(null); // Clear any previously selected file
+    setShowCompletionModal(true);
+  };
+
+  const handleCloseCompletionModal = () => {
+    setShowCompletionModal(false);
+    setTaskToComplete(null);
+    setCompletedFile(null); // Clear file input
+  };
+
+  const handleConfirmCompletion = () => {
+    if (taskToComplete) {
+      updateTaskStatus(taskToComplete._id || taskToComplete.id, 'completed');
+    }
+  };
+
+
   // Sort tasks: Incomplete first, then by deadline
   const sortedTasks = [...tasks].sort((a, b) => {
-    if (a.status !== 'Completed' && b.status === 'Completed') return -1;
-    if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+    if (a.status !== 'completed' && b.status === 'completed') return -1;
+    if (a.status === 'completed' && b.status !== 'completed') return 1;
     return new Date(a.deadline) - new Date(b.deadline);
   });
 
@@ -894,7 +977,21 @@ const EmployeeDashboard = () => {
                     <div className="text-xs text-gray-600 space-y-1">
                       <p><strong className="text-green-700">Deadline:</strong> {formatDate(task.deadline)}</p>
                       <p><strong className="text-green-700">Priority:</strong> {task.priority}</p>
-                      <p><strong className="text-green-700">Status:</strong> <span className={`font-medium ${task.status === 'Completed' ? 'text-green-500' : 'text-yellow-600'}`}>{task.status}</span></p>
+                      <p><strong className="text-green-700">Status:</strong> <span className={`font-medium ${task.status === 'completed' ? 'text-green-500' : 'text-yellow-600'}`}>{task.status}</span></p>
+                      {task.assignedFile && (
+                        <p className="flex items-center">
+                          <FaPaperclip className="mr-1 text-blue-500" />
+                          <strong className="text-green-700">Assigned File:</strong>{" "}
+                          <a href={task.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">View File</a>
+                        </p>
+                      )}
+                      {task.completedFile && (
+                        <p className="flex items-center">
+                          <FaCheckCircle className="mr-1 text-emerald-500" />
+                          <strong className="text-green-700">Completed File:</strong>{" "}
+                          <a href={task.completedFile} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline ml-1">View File</a>
+                        </p>
+                      )}
                     </div>
                     <div className="mt-4 flex justify-between items-center">
                       <button
@@ -903,12 +1000,12 @@ const EmployeeDashboard = () => {
                       >
                         <GrView className="mr-1" /> View Details
                       </button>
-                      {task.status !== 'Completed' && (
+                      {task.status !== 'completed' && (
                         <button
-                          onClick={() => updateTaskStatus(task._id || task.id, 'Completed')}
-                          className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 transition-colors duration-200 text-sm"
+                          onClick={() => handleOpenCompletionModal(task)} // Open new completion modal
+                          className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 transition-colors duration-200 text-sm flex items-center"
                         >
-                          Mark as Complete
+                          <FaCheck className="mr-1" /> Mark as Complete
                         </button>
                       )}
                     </div>
@@ -1021,6 +1118,16 @@ const EmployeeDashboard = () => {
               <p className="flex items-center"><strong className="w-20 text-green-700">Deadline:</strong> {formatDate(selectedTask.deadline)}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Priority:</strong> {selectedTask.priority}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Status:</strong> {selectedTask.status}</p>
+              {selectedTask.assignedFile && (
+                <p className="flex items-center"><strong className="w-20 text-green-700">Assigned File:</strong>{" "}
+                  <a href={selectedTask.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View File</a>
+                </p>
+              )}
+              {selectedTask.completedFile && (
+                <p className="flex items-center"><strong className="w-20 text-green-700">Completed File:</strong>{" "}
+                  <a href={selectedTask.completedFile} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">View File</a>
+                </p>
+              )}
             </div>
             <div className="mt-6 flex justify-end">
               <button
@@ -1028,6 +1135,78 @@ const EmployeeDashboard = () => {
                 className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors duration-200"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Task Completion Modal */}
+      {showCompletionModal && taskToComplete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 relative">
+            <button
+              onClick={handleCloseCompletionModal}
+              className="absolute top-3 right-3 text-gray-600 hover:text-gray-900 text-2xl font-bold"
+            >
+              &times;
+            </button>
+            <h3 className="text-2xl font-semibold mb-6 text-green-900 border-b-2 border-green-300 pb-2">Mark Task as Completed</h3>
+            <div className="space-y-4 text-sm text-gray-800">
+              <p><strong className="text-green-700">Task:</strong> {taskToComplete.title}</p>
+              <p><strong className="text-green-700">Description:</strong> {taskToComplete.description}</p>
+              
+              {/* File Upload for Completion */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Upload Completion File (Optional)</label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="file"
+                    id="completedFileInput"
+                    className="hidden"
+                    onChange={handleCompletedFileChange}
+                  />
+                  <label 
+                    htmlFor="completedFileInput" 
+                    className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center hover:bg-blue-600 transition-colors duration-200"
+                  >
+                    <FaUpload className="mr-2" /> Choose File
+                  </label>
+                  {completedFile && (
+                    <div className="flex items-center text-slate-700">
+                      <span>{completedFile.name}</span>
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setCompletedFile(null);
+                          document.getElementById('completedFileInput').value = '';
+                        }}
+                        className="ml-2 text-red-500 hover:text-red-700"
+                      >
+                        <FaTimesCircle />
+                      </button>
+                    </div>
+                  )}
+                  {uploadingCompletedFile && (
+                    <span className="text-blue-500 text-sm">Uploading...</span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Max 5MB. Allowed: images, PDFs, Word, Excel, PowerPoint, text files.</p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={handleCloseCompletionModal}
+                className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCompletion}
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={uploadingCompletedFile}
+              >
+                {uploadingCompletedFile ? 'Uploading & Completing...' : 'Confirm Completion'}
               </button>
             </div>
           </div>

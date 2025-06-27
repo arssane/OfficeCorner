@@ -1,4 +1,4 @@
-// server.js - No changes needed here, as department routes are already in place
+// server.js
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -11,7 +11,8 @@ import taskRoutes from './routes/task.js';
 import attendanceRoutes from './routes/attendance.js';
 import analyticsRoutes from './routes/analytics.js';
 import eventRoutes from './routes/event.js';
-import departmentRoutes from './routes/department.js'; // Already imported
+import departmentRoutes from './routes/department.js';
+import uploadRoute from './routes/uploadRoutes.js'; // Import the new upload route
 import Event from './entities/Event.js';
 import User from './entities/User.js';
 import { Server } from 'socket.io';
@@ -31,7 +32,7 @@ const io = new Server(server, {
     origin: process.env.NODE_ENV === 'development'
       ? ['http://localhost:5173', 'http://127.0.0.1:5173']
       : [process.env.FRONTEND_URL],
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PUT", "DELETE"], // Add PUT and DELETE for broader API
     credentials: true
   }
 });
@@ -78,24 +79,21 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true })); // Ensure urlencoded is parsed for form data
 
 // Function to seed the default administrator
 const seedAdministrator = async () => {
   try {
-    // Check if admin already exists
     const existingAdmin = await User.findOne({ email: 'saniya@admin.com' });
     
     if (!existingAdmin) {
-      // Create the default administrator
       const admin = await User.create({
         username: 'saniya_admin',
         email: 'saniya@admin.com',
-        password: 'saniya123', // Will be hashed by pre-save hook
+        password: 'saniya123',
         role: 'Administrator',
         name: 'Saniya Administrator'
       });
-      
       console.log('✅ Default administrator account created successfully');
       console.log('📧 Email: saniya@admin.com');
       console.log('🔑 Password: saniya123');
@@ -122,6 +120,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/department', departmentRoutes);
+app.use('/api/files', uploadRoute); // Use the new upload route
 
 // Test event-related endpoint
 app.get('/api/test/events', async (req, res) => {
@@ -184,11 +183,7 @@ app.use((req, res) => {
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('🔗 Connected to MongoDB');
-    
-    // Seed the default administrator after database connection
     await seedAdministrator();
-    
-    // Use server.listen instead of app.listen to support Socket.IO
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log('🔌 Socket.IO initialized for real-time notifications');
