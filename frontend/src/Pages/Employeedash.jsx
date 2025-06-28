@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, MousePointerClick, RefreshCw, Eye, Paperclip, Upload, XCircle, CheckCircle, Check, MapPin, LogIn, LogOut } from 'lucide-react'; // Added MapPin, LogIn, LogOut icons
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calendar, MousePointerClick, RefreshCw, Eye, Paperclip, Upload, XCircle, CheckCircle, Check, MapPin, LogIn, LogOut, Link2, Clock, Calendar as CalendarIconLucide } from 'lucide-react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -10,13 +10,13 @@ const EmployeeDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false); // For task details
   const [selectedTask, setSelectedTask] = useState(null);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  
+
   // New state for completed file upload
   const [completedFile, setCompletedFile] = useState(null);
   const [uploadingCompletedFile, setUploadingCompletedFile] = useState(false);
@@ -27,17 +27,17 @@ const EmployeeDashboard = () => {
   const [attendanceHistory, setAttendanceHistory] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [locationError, setLocationError] = useState(null);
-  const [isClockedIn, setIsClockedIn] = useState(false); // New state to track clock-in status
-  const [currentAttendanceRecordId, setCurrentAttendanceRecordId] = useState(null); // New state for current attendance record ID
+  const [isClockedIn, setIsClockedIn] = useState(false);
+  const [currentAttendanceRecordId, setCurrentAttendanceRecordId] = useState(null);
 
-  // Sample events data (can be fetched from API)
-  const events = [
-    { id: 1, title: 'Team Meeting', date: 'Mar 22, 2025', time: '10:00 AM - 11:00 AM', location: 'Conference Room A' },
-    { id: 2, title: 'Project Kickoff', date: 'Mar 24, 2025', time: '02:00 PM - 03:30 PM', location: 'Main Office' },
-    { id: 3, title: 'Client Presentation', date: 'Mar 25, 2025', time: '11:00 AM - 12:30 PM', location: 'Virtual' },
-    { id: 4, title: 'Department Lunch', date: 'Mar 26, 2025', time: '12:30 PM - 01:30 PM', location: 'Cafeteria' },
-    { id: 5, title: 'Training Session', date: 'Mar 28, 2025', time: '09:00 AM - 12:00 PM', location: 'Training Room' },
-  ];
+  // Event states
+  const [events, setEvents] = useState([]);
+  const [eventErrorMessage, setEventErrorMessage] = useState('');
+  const [currentDate, setCurrentDate] = useState(new Date()); // For calendar navigation
+  const [searchQuery, setSearchQuery] = useState(''); // For event search
+  const [sortOrder, setSortOrder] = useState('dateAsc'); // For event sort
+  const [isEventViewModalOpen, setIsEventViewModalOpen] = useState(false); // New state for event view modal
+  const [selectedEvent, setSelectedEvent] = useState(null); // New state for selected event details
 
   // Initialize currentEmployee with better error handling
   const [currentEmployee, setCurrentEmployee] = useState(() => {
@@ -62,11 +62,73 @@ const EmployeeDashboard = () => {
     return null;
   });
 
+  // Helper functions for formatting dates and times
+  const formatDateToYYYYMMDD = (date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const isDateInPast = (dateString) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [year, month, day] = dateString.split('-').map(Number);
+    const checkDate = new Date(year, month - 1, day);
+    return checkDate < today;
+  };
+
+  const formatDisplayTime = (timeString) => {
+    if (!timeString) return "";
+    try {
+        let dateObj;
+        if (timeString.includes('T') || timeString.includes('Z')) { // ISO string
+            dateObj = new Date(timeString);
+        } else { // Assume HH:MM format
+            const [hours, minutes] = timeString.split(':');
+            dateObj = new Date(); // Use current date for time components
+            dateObj.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+        }
+        
+        if (isNaN(dateObj.getTime())) {
+            console.warn("Invalid date/time string provided to formatTime:", timeString);
+            return 'Invalid Time';
+        }
+
+        const hour = dateObj.getHours();
+        const minutes = dateObj.getMinutes();
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const hour12 = hour % 12 || 12;
+
+        return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+    } catch (e) {
+        console.error("Error formatting time:", e);
+        return 'Error Time';
+    }
+  };
+
+  const formatDateDisplay = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const options = { year: 'numeric', month: 'long', day: 'numeric' };
+      return new Date(dateString).toLocaleDateString(undefined, options);
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+
+  const getMonthName = (monthIndex) => new Date(2000, monthIndex).toLocaleString('en-US', { month: 'long' });
+
   // Check authentication status
   const checkAuthStatus = () => {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
-    
+
     if (!token || !user) {
       console.log('No authentication found, redirecting to login');
       setIsLoggedIn(false);
@@ -76,14 +138,11 @@ const EmployeeDashboard = () => {
 
     try {
       const parsedUser = JSON.parse(user);
-      
-      // Check if user status is pending
       if (parsedUser.status === 'pending') {
         console.log('User status is pending, redirecting to pending page');
         navigate('/employee-pending');
         return false;
       }
-
       setIsLoggedIn(true);
       setAuthChecked(true);
       return true;
@@ -102,18 +161,16 @@ const EmployeeDashboard = () => {
 
   const handleLogout = (e) => {
     e.preventDefault();
-    console.log("Logout clicked");
     localStorage.clear();
     setIsLoggedIn(false);
     setCurrentEmployee(null);
     setTasks([]);
     setAttendanceHistory([]);
-    setIsClockedIn(false); // Clear clock-in status on logout
-    setCurrentAttendanceRecordId(null); // Clear current record ID on logout
+    setIsClockedIn(false);
+    setCurrentAttendanceRecordId(null);
     navigate("/login");
   };
 
-  // Get API configuration
   const getApiBaseUrl = () => {
     return localStorage.getItem("apiBaseUrl") || "http://localhost:5000/api";
   };
@@ -125,128 +182,73 @@ const EmployeeDashboard = () => {
     return `${baseUrl}/tasks`;
   };
 
-  // Enhanced profile fetching with better error handling
-  const fetchEmployeeProfile = async () => {
-    // Only attempt to fetch if currentEmployee is null, preventing redundant fetches
-    if (currentEmployee) {
-      console.log("Employee profile already set, skipping fetch.");
-      return;
-    }
+  const getEventEndpoint = () => {
+    const storedEndpoint = localStorage.getItem("eventEndpoint");
+    if (storedEndpoint) return storedEndpoint;
+    const baseUrl = getApiBaseUrl();
+    return `${baseUrl}/events`;
+  };
 
+  // Enhanced profile fetching
+  const fetchEmployeeProfile = async () => {
+    if (currentEmployee) return; // Prevent redundant fetches
     if (!checkAuthStatus()) return;
 
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
-      
-      if (!token) {
-        console.warn("No authentication token found");
-        navigate('/login');
-        return;
-      }
+      if (!token) { navigate('/login'); return; }
 
       const baseUrl = getApiBaseUrl();
       const possibleEndpoints = [
-        `${baseUrl}/auth/profile`,
-        `${baseUrl}/user/profile`,
-        `${baseUrl}/employee/profile`,
-        `${baseUrl}/auth/me`,
-        `${baseUrl}/me`
+        `${baseUrl}/auth/profile`, `${baseUrl}/user/profile`, `${baseUrl}/employee/profile`,
+        `${baseUrl}/auth/me`, `${baseUrl}/me`
       ];
 
-      let success = false;
       let fetchedUserData = null;
       let successfulEndpoint = '';
 
       for (const endpoint of possibleEndpoints) {
         try {
-          console.log(`Trying profile endpoint: ${endpoint}`);
-
           const response = await axios.get(endpoint, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache'
-            },
+            headers: { Authorization: `Bearer ${token}` },
             timeout: 10000
           });
-
           if (response.status >= 200 && response.status < 300 && response.data) {
-            console.log(`Success with profile endpoint: ${endpoint}`);
             fetchedUserData = response.data.user || response.data;
-            success = true;
             successfulEndpoint = endpoint;
             break;
           }
         } catch (error) {
-          console.log(`Failed with profile endpoint ${endpoint}:`, error.message);
           if (axios.isAxiosError(error) && error.response?.status === 401) {
-            console.error("Unauthorized: Token invalid or expired");
-            handleLogout(new Event('click'));
-            return;
+            handleLogout(new Event('click')); return;
           }
-          continue;
         }
       }
 
-      if (success && fetchedUserData) {
-        // Check if user status is still pending
+      if (fetchedUserData) {
         if (fetchedUserData.status === 'pending') {
-          console.log('User status is still pending');
-          navigate('/employee-pending');
-          return;
+          navigate('/employee-pending'); return;
         }
 
-        const displayedName = (fetchedUserData.name && fetchedUserData.name !== 'Employee') 
-          ? fetchedUserData.name 
-          : (fetchedUserData.username || 'Employee');
+        const displayedName = (fetchedUserData.name && fetchedUserData.name !== 'Employee')
+          ? fetchedUserData.name : (fetchedUserData.username || 'Employee');
 
         const employeeData = {
-          id: fetchedUserData.id || fetchedUserData._id,
-          name: displayedName,
-          email: fetchedUserData.email,
-          department: fetchedUserData.department || 'General',
-          position: fetchedGdata.position || 'Staff',
-          username: fetchedUserData.username,
-          status: fetchedUserData.status
+          id: fetchedUserData.id || fetchedUserData._id, name: displayedName, email: fetchedUserData.email,
+          department: fetchedUserData.department || 'General', position: fetchedUserData.position || 'Staff',
+          username: fetchedUserData.username, status: fetchedUserData.status
         };
-
         setCurrentEmployee(employeeData);
-
-        // Update localStorage with fresh data
-        localStorage.setItem('user', JSON.stringify({
-          id: fetchedUserData.id || fetchedUserData._id,
-          _id: fetchedUserData._id || fetchedUserData.id,
-          username: fetchedUserData.username,
-          name: fetchedUserData.name,
-          email: fetchedUserData.email,
-          role: fetchedUserData.role,
-          status: fetchedUserData.status || 'approved',
-          department: fetchedUserData.department || 'General',
-          position: fetchedUserData.position || 'Staff',
-          phone: fetchedUserData.phone || '',
-          address: fetchedUserData.address || '',
-          createdAt: fetchedUserData.createdAt || new Date().toISOString()
-        }));
-
-        localStorage.setItem('employeeName', fetchedUserData.name || fetchedUserData.username || 'Employee');
-        localStorage.setItem('employeeDepartment', fetchedUserData.department || 'General');
-        localStorage.setItem('employeeEmail', fetchedUserData.email);
-        localStorage.setItem('employeeId', fetchedUserData.id || fetchedUserData._id);
-        localStorage.setItem('employeePosition', fetchedUserData.position || 'Staff');
+        localStorage.setItem('user', JSON.stringify(fetchedUserData)); // Store full user data
         localStorage.setItem("profileEndpoint", successfulEndpoint);
-        
         setIsLoggedIn(true);
         setLastFetchTime(new Date());
         setError(null);
       } else {
-        console.warn("All profile endpoints failed");
         setError("Failed to fetch profile information");
-        // Don't use fallback for authenticated users - redirect to login instead
         navigate('/login');
       }
-
     } catch (err) {
       console.error("Error fetching employee profile:", err);
       setError("Failed to fetch profile information");
@@ -256,46 +258,14 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // Format date for display
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    try {
-      const options = { year: 'numeric', month: 'long', day: 'numeric' };
-      return new Date(dateString).toLocaleDateString(undefined, options);
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  // Format time for display (e.g., "10:30 AM")
-  const formatTime = (dateString) => {
-    if (!dateString || dateString === '-' || dateString === 'null') {
-      return 'N/A';
-    }
-    try {
-      const dateObj = new Date(dateString);
-      // Check if the dateObj is a valid date
-      if (isNaN(dateObj.getTime())) {
-        console.warn("Invalid date string provided to formatTime:", dateString);
-        return 'Invalid Time';
-      }
-      const options = { hour: '2-digit', minute: '2-digit', hour12: true };
-      return dateObj.toLocaleTimeString(undefined, options);
-    } catch (e) {
-      console.error("Error formatting time:", e);
-      return 'Error Time';
-    }
-  };
-
   // Function to get user's current geolocation
   const getUserGeolocation = () => {
     if (!navigator.geolocation) {
-      setLocationError("Geolocation is not supported by your browser. Please update or use a different browser.");
+      setLocationError("Geolocation is not supported by your browser.");
       return null;
     }
-
     setLoading(true);
-    setLocationError(null); // Clear previous location error
+    setLocationError(null);
 
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
@@ -303,17 +273,14 @@ const EmployeeDashboard = () => {
           const { latitude, longitude } = position.coords;
           setUserLocation({ latitude, longitude });
           setLoading(false);
-          setLocationError(null); // Clear any lingering error on success
+          setLocationError(null);
           resolve({ latitude, longitude });
         },
         (error) => {
-          console.error("Error getting geolocation:", error);
           let errorMessage = "An unknown error occurred while getting location.";
           switch (error.code) {
             case error.PERMISSION_DENIED:
-              // This occurs when the user explicitly denies location access.
-              // Instruct the user to check browser and device settings.
-              errorMessage = "Location access denied. Please allow location access in your browser settings (and device settings if on mobile) and retry.";
+              errorMessage = "Location access denied. Please allow location access in your browser settings and retry.";
               break;
             case error.POSITION_UNAVAILABLE:
               errorMessage = "Location information is unavailable. Please ensure GPS/location services are enabled.";
@@ -329,192 +296,96 @@ const EmployeeDashboard = () => {
           setLoading(false);
           reject(new Error(errorMessage));
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
   };
 
-  // Clock-in function (formerly handleManualAttendance)
+  // Clock-in function
   const handleClockIn = async () => {
     if (!checkAuthStatus()) return;
-
     try {
-      console.log("Starting clock-in recording");
       const token = localStorage.getItem("token");
-      
-      if (!token) {
-        alert("Authentication token not found. Please log in again.");
-        navigate('/login');
-        return;
-      }
+      if (!token) { alert("Authentication token not found. Please log in again."); navigate('/login'); return; }
 
       const employeeId = currentEmployee?.id || localStorage.getItem("employeeId");
-      if (!employeeId) {
-        console.error("No employee ID found");
-        alert("Employee ID not found. Please log in again.");
-        navigate('/login');
-        return;
-      }
+      if (!employeeId) { alert("Employee ID not found. Please log in again."); navigate('/login'); return; }
 
-      let locationData = userLocation; 
+      let locationData = userLocation;
       if (!locationData) {
-        try {
-          locationData = await getUserGeolocation();
-          if (!locationData) {
-            return; 
-          }
-        } catch (err) {
-          return; 
-        }
+        try { locationData = await getUserGeolocation(); if (!locationData) { return; } } catch (err) { return; }
       }
 
-      const currentTime = new Date();
-      const clockInTime = currentTime.toISOString(); // ISO string for backend
-      // Frontend no longer calculates isLate. Backend will handle it.
-      // const isLate = currentTime.getHours() >= 10; 
-
+      const clockInTime = new Date().toISOString();
       const baseUrl = getApiBaseUrl();
       const attendanceEndpoint = `${baseUrl}/attendance/record`;
 
-      const requestData = { 
-        employeeId,
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        timeIn: clockInTime, // Send clock-in time
-        // isLate: isLate // Removed, backend will calculate
-      };
-      const requestHeaders = {
-        Authorization: `Bearer ${token}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      };
-
       setLoading(true);
-
-      const response = await axios.post(attendanceEndpoint, requestData, {
-        headers: requestHeaders,
-        timeout: 10000
+      const response = await axios.post(attendanceEndpoint, { employeeId, latitude: locationData.latitude, longitude: locationData.longitude, timeIn: clockInTime }, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 10000
       });
 
       if (response.status >= 200 && response.status < 300 && response.data.success) {
-        console.log("Clock-in recorded successfully");
-        // Assuming backend returns the full attendance record including its _id and calculated flags
-        const newRecord = response.data.data; 
+        const newRecord = response.data.data;
         setIsClockedIn(true);
-        setCurrentAttendanceRecordId(newRecord._id || newRecord.id); // Store the ID for clock-out
+        setCurrentAttendanceRecordId(newRecord._id || newRecord.id);
         alert(`Success: ${response.data.message}${newRecord.isLate ? " (Marked as Late)" : ""}`);
-        setLocationError(null); 
-        await fetchAttendanceHistory(employeeId); // Refresh history
+        setLocationError(null);
+        await fetchAttendanceHistory(employeeId);
       } else {
-        console.error("Server returned unsuccessful response or non-2xx status:", response);
-        const errorMessage = response.data?.message || `Server error: ${response.status} ${response.statusText}`;
-        alert(`Failed to record clock-in: ${errorMessage}`);
-        setLocationError(errorMessage); 
+        alert(`Failed to record clock-in: ${response.data?.message || `Server error: ${response.status}`}`);
+        setLocationError(response.data?.message);
       }
-
     } catch (error) {
-      console.error("Error recording clock-in:", error);
       let alertMessage = "Failed to record clock-in: An unexpected error occurred.";
-      if (error.response?.status === 401) {
-        alertMessage = "Session expired. Please log in again.";
-        handleLogout(new Event('click'));
-      } else if (error.response?.status === 403) {
-        alertMessage = error.response.data?.message || "You are not within the allowed workspace to record attendance.";
-      } else if (error.request) {
-        alertMessage = "Network error: Unable to connect to server. Check your internet connection.";
-      } else if (error.message) {
-        alertMessage = `Request failed: ${error.message}`;
-      }
-      alert(alertMessage);
-      setLocationError(alertMessage); 
-    } finally {
-      setLoading(false);
-    }
+      if (error.response?.status === 401) { alertMessage = "Session expired. Please log in again."; handleLogout(new Event('click')); }
+      else if (error.response?.status === 403) { alertMessage = error.response.data?.message || "You are not within the allowed workspace to record attendance."; }
+      else if (error.request) { alertMessage = "Network error: Unable to connect to server."; }
+      else if (error.message) { alertMessage = `Request failed: ${error.message}`; }
+      alert(alertMessage); setLocationError(alertMessage);
+    } finally { setLoading(false); }
   };
 
   // Clock-out function
   const handleClockOut = async () => {
     if (!checkAuthStatus()) return;
-    if (!isClockedIn || !currentAttendanceRecordId) {
-      alert("You are not currently clocked in.");
-      return;
-    }
+    if (!isClockedIn || !currentAttendanceRecordId) { alert("You are not currently clocked in."); return; }
 
     try {
-      console.log("Starting clock-out recording");
       const token = localStorage.getItem("token");
-      if (!token) {
-        alert("Authentication token not found. Please log in again.");
-        navigate('/login');
-        return;
-      }
+      if (!token) { alert("Authentication token not found. Please log in again."); navigate('/login'); return; }
 
-      const currentTime = new Date();
-      const clockOutTime = currentTime.toISOString(); // ISO string for backend
-      // Frontend no longer calculates isOvertime. Backend will handle it.
-      // const isOvertime = currentTime.getHours() >= 18; 
-
+      const clockOutTime = new Date().toISOString();
       const baseUrl = getApiBaseUrl();
-      // Assuming an update endpoint for existing attendance records
-      const attendanceEndpoint = `${baseUrl}/attendance/update/${currentAttendanceRecordId}`; 
-
-      const requestData = {
-        timeOut: clockOutTime, // Send clock-out time
-        // isOvertime: isOvertime // Removed, backend will calculate
-      };
-      const requestHeaders = {
-        Authorization: `Bearer ${token}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      };
+      const attendanceEndpoint = `${baseUrl}/attendance/update/${currentAttendanceRecordId}`;
 
       setLoading(true);
-
-      const response = await axios.put(attendanceEndpoint, requestData, { // Using PUT/PATCH for update
-        headers: requestHeaders,
-        timeout: 10000
+      const response = await axios.put(attendanceEndpoint, { timeOut: clockOutTime }, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 10000
       });
 
       if (response.status >= 200 && response.status < 300 && response.data.success) {
-        console.log("Clock-out recorded successfully");
         const updatedRecord = response.data.data;
         setIsClockedIn(false);
-        setCurrentAttendanceRecordId(null); // Clear current record ID
+        setCurrentAttendanceRecordId(null);
         alert(`Success: ${response.data.message}${updatedRecord.isOvertime ? " (Marked as Overtime)" : ""}`);
         setLocationError(null);
-        await fetchAttendanceHistory(currentEmployee.id || localStorage.getItem("employeeId")); // Refresh history
+        await fetchAttendanceHistory(currentEmployee.id || localStorage.getItem("employeeId"));
       } else {
-        console.error("Server returned unsuccessful response or non-2xx status:", response);
-        const errorMessage = response.data?.message || `Server error: ${response.status} ${response.statusText}`;
-        alert(`Failed to record clock-out: ${errorMessage}`);
-        setLocationError(errorMessage); 
+        alert(`Failed to record clock-out: ${response.data?.message || `Server error: ${response.status}`}`);
+        setLocationError(response.data?.message);
       }
-
     } catch (error) {
-      console.error("Error recording clock-out:", error);
       let alertMessage = "Failed to record clock-out: An unexpected error occurred.";
-      if (error.response?.status === 401) {
-        alertMessage = "Session expired. Please log in again.";
-        handleLogout(new Event('click'));
-      } else if (error.request) {
-        alertMessage = "Network error: Unable to connect to server. Check your internet connection.";
-      } else if (error.message) {
-        alertMessage = `Request failed: ${error.message}`;
-      }
-      alert(alertMessage);
-      setLocationError(alertMessage); 
-    } finally {
-      setLoading(false);
-    }
+      if (error.response?.status === 401) { alertMessage = "Session expired. Please log in again."; handleLogout(new Event('click')); }
+      else if (error.request) { alertMessage = "Network error: Unable to connect to server."; }
+      else if (error.message) { alertMessage = `Request failed: ${error.message}`; }
+      alert(alertMessage); setLocationError(alertMessage);
+    } finally { setLoading(false); }
   };
 
   const fetchAttendanceHistory = async (employeeId) => {
     if (!checkAuthStatus()) return;
-
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
@@ -523,55 +394,30 @@ const EmployeeDashboard = () => {
       const baseUrl = getApiBaseUrl();
       const historyEndpoint = `${baseUrl}/attendance/employee/${employeeId}`;
 
-      const response = await axios.get(historyEndpoint, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Accept': 'application/json'
-        },
-        timeout: 10000
-      });
+      const response = await axios.get(historyEndpoint, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
 
       if (response.data.success) {
         const fetchedRecords = response.data.data.map(record => {
-          // Frontend now relies on backend's isLate/isOvertime flags,
-          // but provides a fallback calculation if they are undefined (e.g., from old records without these fields).
           const recordTimeIn = record.timeIn ? new Date(record.timeIn) : null;
-          const recordTimeOut = record.timeOut ? new Date(record.timeOut) : null;
-          
-          // Fallback calculation for display if backend flags are missing
           const isLateFallback = (recordTimeIn && (recordTimeIn.getHours() < 7 || recordTimeIn.getHours() >= 10));
-          // Assuming 8 hours (480 minutes) is standard work duration for overtime fallback
           const isOvertimeFallback = (record.duration && record.duration > (8 * 60));
-
-          return { 
-            ...record, 
-            isLate: record.isLate !== undefined ? record.isLate : isLateFallback, 
+          return {
+            ...record,
+            isLate: record.isLate !== undefined ? record.isLate : isLateFallback,
             isOvertime: record.isOvertime !== undefined ? record.isOvertime : isOvertimeFallback
           };
         });
+        setAttendanceHistory(fetchedRecords); setError(null);
 
-        setAttendanceHistory(fetchedRecords);
-        setError(null);
-
-        // Check if the user is currently clocked in based on the latest record
-        // Find the latest record for today that has a timeIn but no timeOut
         const today = new Date();
-        const startOfToday = new Date(today); // Clone for manipulation
-        startOfToday.setHours(0,0,0,0);
-        const endOfToday = new Date(today); // Clone for manipulation
-        endOfToday.setHours(23,59,59,999);
+        const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+        const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
 
-        // Filter for records on the current date
-        const recordsToday = fetchedRecords.filter(record => {
-          const recordDate = new Date(record.date);
-          return recordDate >= startOfToday && recordDate <= endOfToday;
-        });
-
-        // Find the record that is clocked in (timeIn exists, timeOut is null)
-        const latestClockedInRecordForToday = recordsToday.find(record => 
-          record.timeIn && (record.timeOut === null || record.timeOut === undefined || record.timeOut === 'N/A') // Check for 'N/A' too
+        const latestClockedInRecordForToday = fetchedRecords.find(record =>
+          new Date(record.date) >= startOfToday && new Date(record.date) <= endOfToday &&
+          record.timeIn && (record.timeOut === null || record.timeOut === undefined || record.timeOut === 'N/A')
         );
-        
+
         if (latestClockedInRecordForToday) {
           setIsClockedIn(true);
           setCurrentAttendanceRecordId(latestClockedInRecordForToday._id || latestClockedInRecordForToday.id);
@@ -579,124 +425,122 @@ const EmployeeDashboard = () => {
           setIsClockedIn(false);
           setCurrentAttendanceRecordId(null);
         }
-
       } else {
         console.error('Failed to fetch attendance history:', response.data.message);
       }
     } catch (error) {
       console.error("Error fetching attendance history:", error);
-      if (error.response?.status === 401) {
-        console.error("Unauthorized access to attendance history");
-        handleLogout(new Event('click'));
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (error.response?.status === 401) { handleLogout(new Event('click')); }
+    } finally { setLoading(false); }
   };
 
   // Enhanced task fetching
   const fetchEmployeeTasks = async (employeeId, forceRefresh = false) => {
     if (!checkAuthStatus()) return;
-
     try {
       const token = localStorage.getItem("token");
-      if (!token) {
-        console.warn("Authentication token not found");
-        return;
-      }
+      if (!token) { console.warn("Authentication token not found"); return; }
 
-      setLoading(true);
-      setError(null);
-
+      setLoading(true); setError(null);
       const timestamp = new Date().getTime();
       const taskEndpoint = getTaskEndpoint();
       const urlWithParams = `${taskEndpoint}?_t=${timestamp}&refresh=${forceRefresh ? '1' : '0'}`;
 
       const response = await axios.get(urlWithParams, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        },
-        timeout: 15000,
-        validateStatus: function (status) {
-          return status < 500;
-        }
+        headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+        timeout: 15000, validateStatus: (status) => status < 500
       });
 
       if (response.status >= 200 && response.status < 300) {
-        let allTasks = [];
+        let allTasks = Array.isArray(response.data) ? response.data :
+                       (response.data?.tasks && Array.isArray(response.data.tasks)) ? response.data.tasks :
+                       (response.data?.data && Array.isArray(response.data.data)) ? response.data.data :
+                       (response.data && typeof response.data === 'object' && Object.values(response.data).find(val => Array.isArray(val))) || [];
         
-        if (Array.isArray(response.data)) {
-          allTasks = response.data;
-        } else if (response.data?.tasks && Array.isArray(response.data.tasks)) {
-          allTasks = response.data.tasks;
-        } else if (response.data?.data && Array.isArray(response.data.data)) {
-          allTasks = response.data.data;
-        } else if (response.data && typeof response.data === 'object') {
-          const possibleTasks = Object.values(response.data).find(val => Array.isArray(val));
-          allTasks = possibleTasks || [];
-        }
+        const activeTasks = allTasks.filter(task => !task.deleted && !task.isDeleted && task.status !== 'deleted' && task.active !== false);
 
-        // Filter out deleted tasks
-        const activeTasks = allTasks.filter(task => {
-          return !task.deleted &&
-                 !task.isDeleted &&
-                 task.status !== 'deleted' &&
-                 task.active !== false;
-        });
+        if (activeTasks.length === 0) { setTasks([]); setLastFetchTime(new Date().toLocaleTimeString()); return; }
 
-        if (activeTasks.length === 0) {
-          setTasks([]);
-          setLastFetchTime(new Date().toLocaleTimeString());
-          return;
-        }
-
-        // Filter tasks for current employee
-        if (!employeeId || employeeId === "fallback-employee-id") {
-          setTasks(activeTasks);
-        } else {
+        if (!employeeId || employeeId === "fallback-employee-id") { setTasks(activeTasks); }
+        else {
           const employeeTasks = activeTasks.filter(task => {
-            const taskAssignedTo = task.assignedTo || task.assigned_to || task.employeeId ||
-                                 task.employee_id || task.employee?.id || task.employee?._id;
-            if (!taskAssignedTo) return true;
-            return taskAssignedTo.toString() === employeeId.toString();
+            const taskAssignedTo = task.assignedTo || task.assigned_to || task.employeeId || task.employee_id || task.employee?.id || task.employee?._id;
+            return taskAssignedTo && taskAssignedTo.toString() === employeeId.toString();
           });
-
           setTasks(employeeTasks.length > 0 ? employeeTasks : activeTasks);
         }
-
-        setLastFetchTime(new Date().toLocaleTimeString());
-        setError(null);
-
-      } else if (response.status === 401) {
-        setError("Authentication failed - please log in again");
-        handleLogout(new Event('click'));
-      } else {
-        setError(`Failed to fetch tasks: ${response.status}`);
-        setTasks([]);
-      }
+        setLastFetchTime(new Date().toLocaleTimeString()); setError(null);
+      } else if (response.status === 401) { setError("Authentication failed - please log in again"); handleLogout(new Event('click')); }
+      else { setError(`Failed to fetch tasks: ${response.status}`); setTasks([]); }
     } catch (err) {
       console.error("Error fetching employee tasks:", err);
-      
-      if (err.code === 'ECONNABORTED') {
-        setError("Request timeout - please try again");
-      } else if (err.response?.status === 401) {
-        setError("Authentication failed - please log in again");
-        handleLogout(new Event('click'));
-      } else if (err.response?.status >= 500) {
-        setError("Server error - please try again later");
-      } else {
-        setError("Failed to fetch tasks - check your connection");
+      if (err.code === 'ECONNABORTED') { setError("Request timeout - please try again"); }
+      else if (err.response?.status === 401) { setError("Authentication failed - please log in again"); handleLogout(new Event('click')); }
+      else if (err.response?.status >= 500) { setError("Server error - please try again later"); }
+      else { setError("Failed to fetch tasks - check your connection"); }
+      if (err.response?.status !== 401) { /* Keep existing tasks on non-auth errors */ } else { setTasks([]); }
+    } finally { setLoading(false); }
+  };
+
+  // Fetch events from API
+  const fetchEvents = async () => {
+    setLoading(true);
+    setEventErrorMessage('');
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setEventErrorMessage("Authentication token not found. Please log in.");
+        setLoading(false);
+        return;
       }
-      
-      if (err.response?.status !== 401) {
-        // Keep existing tasks on non-auth errors
-      } else {
-        setTasks([]);
+
+      const baseUrl = getApiBaseUrl();
+      const possibleEndpoints = [`${baseUrl}/events`, `${baseUrl}/calendar/events`];
+
+      let fetchedData = null;
+      let success = false;
+
+      for (const endpoint of possibleEndpoints) {
+        try {
+          const response = await axios.get(endpoint, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 8000
+          });
+
+          if (response.status >= 200 && response.status < 300) {
+            fetchedData = response.data.events || response.data.data || response.data;
+            success = true;
+            localStorage.setItem("eventEndpoint", endpoint);
+            break;
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch from ${endpoint}:`, err.message);
+        }
       }
+
+      if (success && fetchedData && Array.isArray(fetchedData)) {
+        const processedEvents = fetchedData
+          .filter(event => event.visibility === 'public')
+          .map(event => ({
+            ...event,
+            date: event.date?.split('T')[0] || '',
+            startTime: event.startTime || event.time || '00:00',
+            endTime: event.endTime || '', // Ensure endTime is captured
+            id: event.id || event._id || Math.random().toString(36).substr(2, 9),
+            link: event.link || '',
+            location: event.location || '',
+            visibility: event.visibility || 'public',
+            type: event.type || 'other',
+          }));
+        setEvents(processedEvents);
+      } else {
+        setEventErrorMessage("Failed to fetch events from all known endpoints or data format is incorrect.");
+        setEvents([]);
+      }
+    } catch (err) {
+      console.error("Error fetching events:", err);
+      setEventErrorMessage("An unexpected error occurred while fetching events.");
+      setEvents([]);
     } finally {
       setLoading(false);
     }
@@ -705,124 +549,70 @@ const EmployeeDashboard = () => {
   // Handle file input change for completed file
   const handleCompletedFileChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setCompletedFile(file);
-    } else {
-      setCompletedFile(null);
-    }
+    if (file) { setCompletedFile(file); } else { setCompletedFile(null); }
   };
 
-  // Upload file to Cloudinary (reused from TaskManagement, but here for employee)
+  // Upload file to Cloudinary
   const uploadFileToCloudinary = async (file) => {
     if (!file) return null;
-
     setUploadingCompletedFile(true);
     const token = localStorage.getItem("token");
-    if (!token) {
-      alert("Authentication token not found. Please log in first.");
-      setUploadingCompletedFile(false);
-      return null;
-    }
+    if (!token) { alert("Authentication token not found. Please log in first."); setUploadingCompletedFile(false); return null; }
 
     const formData = new FormData();
-    formData.append('file', file); // 'file' is the field name expected by Multer
+    formData.append('file', file);
 
     try {
       const response = await axios.post(`${getApiBaseUrl()}/files/upload`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          // 'Content-Type' is not set for FormData, handled automatically by axios
-        },
-        timeout: 60000 // Longer timeout for file uploads
+        headers: { Authorization: `Bearer ${token}` }, timeout: 60000
       });
-
-      if (response.status >= 200 && response.status < 300) {
-        setError(null);
-        return response.data.url; // Return the Cloudinary URL
-      } else {
-        setError(`File upload failed: ${response.data.message || response.statusText}`);
-        return null;
-      }
+      if (response.status >= 200 && response.status < 300) { setError(null); return response.data.url; }
+      else { setError(`File upload failed: ${response.data.message || response.statusText}`); return null; }
     } catch (err) {
-      setError(`File upload network error: ${err.message}`);
-      return null;
-    } finally {
-      setUploadingCompletedFile(false);
-    }
+      setError(`File upload network error: ${err.message}`); return null;
+    } finally { setUploadingCompletedFile(false); }
   };
-
 
   // Manual refresh function
   const handleManualRefresh = async () => {
     if (currentEmployee) {
-      console.log("Manual refresh triggered");
       await fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
-      await fetchAttendanceHistory(currentEmployee.id || currentEmployee._id); // Also refresh attendance
+      await fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
+      await fetchEvents();
     }
   };
 
-  // Update task status, now including file upload for completion
+  // Update task status, including file upload for completion
   const updateTaskStatus = async (taskId, newStatus) => {
     if (!checkAuthStatus()) return;
-
     try {
       const token = localStorage.getItem("token");
-      if (!token) {
-        alert("Authentication token not found. Please log in first.");
-        navigate('/login');
-        return;
-      }
+      if (!token) { alert("Authentication token not found. Please log in first."); navigate('/login'); return; }
 
-      const taskToUpdate = tasks.find(task =>
-        (task.id && task.id.toString() === taskId.toString()) || 
-        (task._id && task._id.toString() === taskId.toString())
-      );
+      const taskToUpdate = tasks.find(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString()));
+      if (!taskToUpdate) { console.error("Task not found with ID:", taskId); return; }
 
-      if (!taskToUpdate) {
-        console.error("Task not found with ID:", taskId);
-        return;
-      }
-
-      // If status is 'Completed' and there's a file to upload
       let fileUrl = null;
       if (newStatus === 'completed' && completedFile) {
         fileUrl = await uploadFileToCloudinary(completedFile);
-        if (!fileUrl) {
-          setError("Failed to upload completion file. Task status not updated.");
-          return; // Stop if file upload fails
-        }
+        if (!fileUrl) { setError("Failed to upload completion file. Task status not updated."); return; }
       }
 
       const updateData = {
-        status: newStatus,
-        updatedAt: new Date().toISOString(),
-        completedFile: fileUrl || taskToUpdate.completedFile, // Include new or existing file URL
-        title: taskToUpdate.title,
-        description: taskToUpdate.description,
-        priority: taskToUpdate.priority,
-        deadline: taskToUpdate.deadline,
-        assignedTo: taskToUpdate.assignedTo || taskToUpdate.assigned_to || taskToUpdate.employeeId
+        status: newStatus, updatedAt: new Date().toISOString(), completedFile: fileUrl || taskToUpdate.completedFile,
+        title: taskToUpdate.title, description: taskToUpdate.description, priority: taskToUpdate.priority,
+        deadline: taskToUpdate.deadline, assignedTo: taskToUpdate.assignedTo || taskToUpdate.assigned_to || taskToUpdate.employeeId
       };
 
-      // Optimistically update the UI
       setTasks(prevTasks =>
         prevTasks.map(task => {
-          const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
-                          (task._id && task._id.toString() === taskId.toString());
-          return taskMatch
-            ? { ...task, status: newStatus, completedFile: updateData.completedFile, updatedAt: new Date().toISOString() }
-            : task;
+          const taskMatch = (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString());
+          return taskMatch ? { ...task, status: newStatus, completedFile: updateData.completedFile, updatedAt: new Date().toISOString() } : task;
         })
       );
 
       const baseEndpoint = getTaskEndpoint();
-      
-      const possibleEndpoints = [
-        `${baseEndpoint}/${taskId}`,
-        `${baseEndpoint}/update/${taskId}`,
-        `${baseEndpoint}/${taskId}/status`,
-        `${baseEndpoint}/${taskId}/update`,
-      ];
+      const possibleEndpoints = [`${baseEndpoint}/${taskId}`, `${baseEndpoint}/update/${taskId}`, `${baseEndpoint}/${taskId}/status`, `${baseEndpoint}/${taskId}/update`];
 
       let updateSuccess = false;
       let lastError = null;
@@ -830,126 +620,57 @@ const EmployeeDashboard = () => {
       for (const endpoint of possibleEndpoints) {
         for (const method of ['put', 'patch']) {
           try {
-            console.log(`Attempting ${method.toUpperCase()} to ${endpoint}`);
-            
-            const response = await axios[method](endpoint, updateData, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-              },
-              timeout: 15000
-            });
-
+            const response = await axios[method](endpoint, updateData, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
             if (response.status >= 200 && response.status < 300) {
-              console.log(`Success with ${method.toUpperCase()} ${endpoint}:`, response.data);
               updateSuccess = true;
-              
-              // Update with server response data
               if (response.data && (response.data.task || response.data.id || response.data._id)) {
                 const serverTask = response.data.task || response.data;
                 setTasks(prevTasks => prevTasks.map(task => {
-                  const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
-                                  (task._id && task._id.toString() === taskId.toString());
+                  const taskMatch = (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString());
                   return taskMatch ? { ...task, ...serverTask } : task;
                 }));
               }
-              
               break;
             }
-          } catch (err) {
-            console.log(`Failed ${method.toUpperCase()} ${endpoint}:`, err.message);
-            lastError = err;
-            if (err.response && err.response.status === 401) {
-              throw err;
-            }
-            continue;
-          }
+          } catch (err) { lastError = err; if (err.response && err.response.status === 401) { throw err; } }
         }
         if (updateSuccess) break;
       }
 
-      if (!updateSuccess) {
-        throw lastError || new Error("All update methods failed");
-      }
+      if (!updateSuccess) { throw lastError || new Error("All update methods failed"); }
 
       alert(`Task marked as ${newStatus.replace('-', ' ')}`);
-      setCompletedFile(null); // Clear file input after successful completion
-      setShowCompletionModal(false); // Close completion modal
+      setCompletedFile(null);
+      setShowCompletionModal(false);
       setTaskToComplete(null);
-      
-      // Optionally refresh tasks from server to ensure consistency
-      setTimeout(() => {
-        if (currentEmployee) {
-          fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true);
-        }
-      }, 1000);
+      setTimeout(() => { if (currentEmployee) { fetchEmployeeTasks(currentEmployee.id || currentEmployee._id, true); } }, 1000);
 
     } catch (err) {
       console.error("Error updating task:", err);
-      
-      // Revert optimistic update on error
-      const originalTask = tasks.find(task => 
-        (task.id && task.id.toString() === taskId.toString()) || 
-        (task._id && task._id.toString() === taskId.toString())
-      );
-      
-      if (originalTask) {
-        setTasks(prevTasks => prevTasks.map(task => {
-          const taskMatch = (task.id && task.id.toString() === taskId.toString()) || 
-                          (task._id && task._id.toString() === taskId.toString());
-          return taskMatch ? originalTask : task;
-        }));
-      }
+      const originalTask = tasks.find(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString()));
+      if (originalTask) { setTasks(prevTasks => prevTasks.map(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString()) ? originalTask : task)); }
 
-      // Handle different error types
-      if (err.response?.status === 403) {
-        alert("You don't have permission to update this task.");
-      } else if (err.response?.status === 404) {
-        alert("Task not found or update endpoint not available. Please contact your administrator.");
-      } else if (err.response?.status === 401) {
-        alert("Session expired. Please log in again.");
-        handleLogout(new Event('click'));
-      } else if (err.response?.status === 422) {
-        alert(`Invalid data: ${err.response?.data?.message || 'Please check the task data'}`);
-      } else if (err.code === 'ECONNABORTED') {
-        alert("Request timeout. Please try again.");
-      } else {
-        const errorMsg = err.response?.data?.message || err.message || 'Unknown error occurred';
-        alert(`Failed to update task: ${errorMsg}`);
-      }
+      if (err.response?.status === 403) { alert("You don't have permission to update this task."); }
+      else if (err.response?.status === 404) { alert("Task not found or update endpoint not available."); }
+      else if (err.response?.status === 401) { alert("Session expired. Please log in again."); handleLogout(new Event('click')); }
+      else if (err.response?.status === 422) { alert(`Invalid data: ${err.response?.data?.message || 'Please check the task data'}`); }
+      else if (err.code === 'ECONNABORTED') { alert("Request timeout. Please try again."); }
+      else { alert(`Failed to update task: ${err.response?.data?.message || err.message || 'Unknown error occurred'}`); }
     }
   };
 
   // Modal handlers for task details
-  const handleOpenModal = (task) => {
-    setSelectedTask(task);
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedTask(null);
-  };
+  const handleOpenModal = (task) => { setSelectedTask(task); setIsModalOpen(true); };
+  const handleCloseModal = () => { setIsModalOpen(false); setSelectedTask(null); };
 
   // Modal handlers for completion
-  const handleOpenCompletionModal = (task) => {
-    setTaskToComplete(task);
-    setCompletedFile(null); // Clear any previously selected file
-    setShowCompletionModal(true);
-  };
+  const handleOpenCompletionModal = (task) => { setTaskToComplete(task); setCompletedFile(null); setShowCompletionModal(true); };
+  const handleCloseCompletionModal = () => { setShowCompletionModal(false); setTaskToComplete(null); setCompletedFile(null); };
+  const handleConfirmCompletion = () => { if (taskToComplete) { updateTaskStatus(taskToComplete._id || taskToComplete.id, 'completed'); } };
 
-  const handleCloseCompletionModal = () => {
-    setShowCompletionModal(false);
-    setTaskToComplete(null);
-    setCompletedFile(null); // Clear file input
-  };
-
-  const handleConfirmCompletion = () => {
-    if (taskToComplete) {
-      updateTaskStatus(taskToComplete._id || taskToComplete.id, 'completed');
-    }
-  };
+  // Modal handlers for event details
+  const handleOpenEventViewModal = (event) => { setSelectedEvent(event); setIsEventViewModalOpen(true); };
+  const handleCloseEventViewModal = () => { setIsEventViewModalOpen(false); setSelectedEvent(null); };
 
 
   // Sort tasks: Incomplete first, then by deadline
@@ -959,126 +680,175 @@ const EmployeeDashboard = () => {
     return new Date(a.deadline) - new Date(b.deadline);
   });
 
-  const today = new Date().toLocaleDateString('en-US', { 
-    weekday: 'long', 
-    month: 'long', 
-    day: 'numeric', 
-    year: 'numeric' 
-  });
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-  // Generate calendar days - Simplified to directly display in the component
-  const renderCalendarPlanning = () => {
-    return (
-      <div>
-        <h3 className="text-xl font-semibold text-green-700 mb-4">Calendar View</h3>
-        <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium text-gray-600 mb-4">
-          <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
-        </div>
-        <div className="grid grid-cols-7 gap-2 text-center text-gray-800">
-          {generateCalendarDays()}
-        </div>
-      </div>
+  // Optimized: Pre-process events into a map for faster lookup in renderCalendarDays
+  const eventsByDate = useMemo(() => {
+    const map = new Map();
+    events.forEach(event => {
+      const eventDate = event.date?.split('T')[0] || '';
+      if (eventDate) {
+        if (!map.has(eventDate)) { map.set(eventDate, []); }
+        map.get(eventDate).push(event);
+      }
+    });
+    return map;
+  }, [events]);
+
+  // Filter and sort events based on search query and sort order
+  const filteredEvents = useMemo(() => {
+    let tempEvents = events.filter(event =>
+      event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (event.description && event.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (event.location && event.location.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  };
 
-  const generateCalendarDays = () => {
+    switch (sortOrder) {
+      case 'dateAsc':
+        tempEvents.sort((a, b) => new Date(a.date + 'T' + (a.startTime || '00:00')) - new Date(b.date + 'T' + (b.startTime || '00:00')));
+        break;
+      case 'dateDesc':
+        tempEvents.sort((a, b) => new Date(b.date + 'T' + (b.startTime || '00:00')) - new Date(a.date + 'T' + (a.startTime || '00:00')));
+        break;
+      case 'titleAsc':
+        tempEvents.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case 'titleDesc':
+        tempEvents.sort((a, b) => b.title.localeCompare(a.title));
+        break;
+      default:
+        break;
+    }
+    return tempEvents;
+  }, [events, searchQuery, sortOrder]);
+
+
+  // Calendar rendering logic
+  const renderCalendarDays = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const numDays = getDaysInMonth(year, month);
+    const firstDayIndex = getFirstDayOfMonth(year, month);
+
     const days = [];
-    const eventDays = events.map(event => event.date);
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const firstDay = new Date(currentYear, currentMonth, 1).getDay();
 
-    // Empty cells for days before month starts
-    for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={`empty-${i}`} className="h-12"></div>);
+    for (let i = 0; i < firstDayIndex; i++) {
+      days.push(<div key={`empty-${i}`} className="h-28 w-full"></div>);
     }
 
-    // Days of the month
-    for (let i = 1; i <= daysInMonth; i++) {
-      const date = new Date(currentYear, currentMonth, i);
-      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).replace(',', '');
-      const hasEvent = events.some(event => {
-        const eventDate = new Date(event.date);
-        return eventDate.getDate() === i && eventDate.getMonth() === currentMonth && eventDate.getFullYear() === currentYear;
-      });
-      const isToday = i === currentDate.getDate() && currentMonth === new Date().getMonth() && currentYear === new Date().getFullYear();
-      
+    for (let day = 1; day <= numDays; day++) {
+      const fullDate = formatDateToYYYYMMDD(new Date(year, month, day));
+      const isToday = fullDate === formatDateToYYYYMMDD(new Date());
+      const isInPast = isDateInPast(fullDate);
+
+      const eventsForDay = eventsByDate.get(fullDate) || [];
+
       days.push(
-        <div 
-          key={i} 
-          className={`h-12 flex flex-col justify-center items-center rounded-md cursor-pointer hover:bg-gray-100 ${
-            isToday ? 'bg-blue-100 font-bold text-blue-600' : ''
-          } ${hasEvent ? 'border-2 border-blue-400' : ''}`}
+        <div
+          key={day}
+          className={`relative h-28 p-2 border rounded-lg flex flex-col items-start transition-all duration-200
+            ${isToday ? 'bg-green-100 border-green-500' : 'bg-white hover:bg-gray-50'}
+            ${isInPast && !isToday ? 'bg-gray-100 text-gray-400' : ''}
+            ${eventsForDay.length > 0 ? 'bg-emerald-50 border-emerald-300' : ''}
+            border-gray-200 shadow-sm overflow-hidden cursor-pointer
+          `}
+          onClick={() => {
+            // If there are events, open a modal to show them
+            if (eventsForDay.length > 0) {
+              setSelectedEvent(eventsForDay[0]); // Select the first event for display
+              setIsEventViewModalOpen(true);
+            }
+          }}
         >
-          <span>{i}</span>
-          {hasEvent && <div className="w-2 h-2 bg-blue-500 rounded-full mt-1"></div>}
+          <span className={`text-lg font-semibold mb-1 ${isToday ? 'text-green-700' : ''}`}>
+            {day}
+          </span>
+          {eventsForDay.length > 0 && (
+            <div className="flex flex-col gap-0.5 overflow-hidden w-full text-xs">
+              {eventsForDay.slice(0, 2).map(event => ( // Show up to 2 events directly
+                <div
+                  key={event.id || event._id}
+                  className="bg-emerald-200 text-emerald-800 rounded-full px-2 py-0.5 truncate max-w-full hover:bg-emerald-300 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent opening the date's default action
+                    setSelectedEvent(event);
+                    setIsEventViewModalOpen(true);
+                  }}
+                  title={`${event.title} (${formatDisplayTime(event.startTime)})`}
+                >
+                  {event.title}
+                </div>
+              ))}
+              {eventsForDay.length > 2 && (
+                <span className="text-gray-500 ml-1">+{eventsForDay.length - 2} more</span>
+              )}
+            </div>
+          )}
         </div>
       );
     }
     return days;
   };
 
+  const handlePrevMonth = () => {
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+
   // Effect hooks
-  // This useEffect ensures authentication status is checked on mount.
   useEffect(() => {
     if (!authChecked) {
       checkAuthStatus();
     }
   }, [authChecked]);
 
-  // This useEffect handles the initial profile fetch after authentication is checked.
-  // It only fetches if isLoggedIn is true and currentEmployee has not been set yet.
   useEffect(() => {
     if (authChecked && isLoggedIn && !currentEmployee) {
       fetchEmployeeProfile();
     }
-  }, [authChecked, isLoggedIn, currentEmployee]); // Added currentEmployee to deps to prevent re-fetching if already set
+  }, [authChecked, isLoggedIn, currentEmployee]);
 
-  // This useEffect handles fetching tasks and attendance history, and setting up the refresh interval.
-  // It runs only when currentEmployee or isLoggedIn changes, ensuring currentEmployee is available.
   useEffect(() => {
     if (currentEmployee && isLoggedIn) {
       fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
       fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
+      fetchEvents();
 
-      // Set up refresh interval for tasks and attendance, only if currentEmployee exists
       const refreshInterval = setInterval(() => {
         fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
         fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
-      }, 120000); // Refresh every 2 minutes
+        fetchEvents();
+      }, 120000);
 
       return () => clearInterval(refreshInterval);
     }
-  }, [currentEmployee, isLoggedIn]); // Dependencies: currentEmployee and login status
+  }, [currentEmployee, isLoggedIn]);
 
-  // Request geolocation on component mount if userLocation is not already set
   useEffect(() => {
-    // Only attempt to get geolocation if logged in, location isn't already set, and there's no existing location error.
-    // Also, ensure it only runs if the 'attendance' tab is active, to avoid unnecessary prompts.
     if (isLoggedIn && activeTab === 'attendance' && !userLocation && !locationError) {
       getUserGeolocation().catch(err => console.log("Initial geolocation fetch failed:", err.message));
     }
   }, [isLoggedIn, userLocation, locationError, activeTab]);
 
 
-  // Show loading screen while checking auth
   if (!authChecked || (loading && !currentEmployee)) {
     return (
-      <div className="flex justify-center items-center h-screen bg-gray-100">
+      <div className="flex justify-center items-center h-screen bg-gray-100 font-inter">
         <div className="text-xl text-green-700">Loading Dashboard...</div>
       </div>
     );
   }
 
-  // Don't render if not logged in (will be redirected)
   if (!isLoggedIn) {
     return null;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col" onClick={closeProfileDropdown}>
+    <div className="min-h-screen bg-gray-50 flex flex-col font-inter" onClick={closeProfileDropdown}>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-green-900 shadow-lg" onClick={e => e.stopPropagation()}>
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
@@ -1091,14 +861,12 @@ const EmployeeDashboard = () => {
             </span>
           </div>
           <div className="hidden md:flex items-center text-white text-sm mr-6">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+            <Calendar className="h-4 w-4 mr-2" />
             <span>{today}</span>
           </div>
           <div className="relative">
-            <button 
-              className="flex items-center space-x-2 bg-green-700 bg-opacity-50 text-white px-4 py-2 rounded-lg hover:bg-opacity-70 transition" 
+            <button
+              className="flex items-center space-x-2 bg-green-700 bg-opacity-50 text-white px-4 py-2 rounded-lg hover:bg-opacity-70 transition"
               onClick={toggleProfileDropdown}
             >
               <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center font-medium">
@@ -1128,10 +896,7 @@ const EmployeeDashboard = () => {
                   onClick={handleLogout}
                   className="block w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 flex items-center"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                  </svg>
-                  Logout
+                  <LogOut className="mr-3" size={20} /> Logout
                 </button>
               </div>
             )}
@@ -1139,9 +904,11 @@ const EmployeeDashboard = () => {
         </div>
       </header>
 
+      {/* Changed overflow-x-auto to overflow-hidden */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        <aside className={`min-h-screen bg-green-800 text-white w-64 p-5 space-y-6 flex flex-col justify-between ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out fixed md:relative h-full z-40`}>
+        {/* Adjusted sidebar classes: remove 'fixed' and 'h-full', add 'absolute inset-y-0 left-0' for mobile */}
+        <aside className={`min-h-screen bg-green-800 text-white w-64 p-5 space-y-6 flex flex-col justify-between ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out absolute md:relative inset-y-0 left-0 z-40`}>
           <div>
             <h2 className="text-3xl font-bold mb-6 text-center text-green-200">EMS</h2>
             <nav>
@@ -1153,10 +920,9 @@ const EmployeeDashboard = () => {
                 </li>
                 <li>
                   <button onClick={() => setActiveTab('calendar')} className={`w-full text-left flex items-center p-3 rounded-lg transition-colors duration-200 ${activeTab === 'calendar' ? 'bg-green-700 text-white' : 'hover:bg-green-700 hover:text-white'}`} >
-                    <Calendar className="mr-3" size={20} /> Calendar
+                    <CalendarIconLucide className="mr-3" size={20} /> Calendar
                   </button>
                 </li>
-                {/* Attendance Tab */}
                 <li>
                   <button onClick={() => setActiveTab('attendance')} className={`w-full text-left flex items-center p-3 rounded-lg transition-colors duration-200 ${activeTab === 'attendance' ? 'bg-green-700 text-white' : 'hover:bg-green-700 hover:text-white'}`} >
                     <MousePointerClick className="mr-3" size={20} /> Attendance
@@ -1166,18 +932,19 @@ const EmployeeDashboard = () => {
             </nav>
           </div>
           <div className="mt-auto">
-            <p className="text-sm text-green-300 mb-2">Last Fetched: {lastFetchTime ? formatDate(lastFetchTime) : 'N/A'}</p>
+            <p className="text-sm text-green-300 mb-2">Last Fetched: {lastFetchTime ? formatDateDisplay(lastFetchTime) : 'N/A'}</p>
             <button onClick={handleManualRefresh} className="w-full flex items-center justify-center p-3 rounded-lg bg-green-700 text-white hover:bg-green-600 transition-colors duration-200" >
               <RefreshCw size={18} className="mr-2" /> Refresh Data
             </button>
             <Link to="/login" onClick={handleLogout} className="w-full text-left flex items-center p-3 mt-3 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors duration-200" >
-              <MousePointerClick className="mr-3" size={20} /> Logout
+              <LogOut className="mr-3" size={20} /> Logout
             </Link>
           </div>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
+        {/* Changed 'overflow-x-hidden' to 'overflow-y-auto' and added 'flex-grow' */}
+        <main className="flex-grow overflow-y-auto bg-gray-100 p-6 min-w-0">
           <div className="md:hidden flex justify-end mb-4">
             <button onClick={toggleSidebar} className="text-gray-600 focus:outline-none focus:text-gray-900">
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1196,7 +963,7 @@ const EmployeeDashboard = () => {
           {activeTab === 'tasks' && (
             <section className="bg-white rounded-lg shadow-md p-6 mb-6">
               <h2 className="text-3xl font-bold text-green-800 mb-6 border-b-2 border-green-200 pb-3">My Tasks</h2>
-              {loading && <p>Loading tasks...</p>}
+              {loading && <p className="text-gray-500">Loading tasks...</p>}
               {!loading && sortedTasks.length === 0 && <p className="text-gray-600">No tasks assigned.</p>}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {sortedTasks.map((task) => (
@@ -1204,19 +971,19 @@ const EmployeeDashboard = () => {
                     <h3 className="text-lg font-semibold text-green-900 mb-2">{task.title}</h3>
                     <p className="text-sm text-gray-700 mb-3">{task.description}</p>
                     <div className="text-xs text-gray-600 space-y-1">
-                      <p><strong className="text-green-700">Deadline:</strong> {formatDate(task.deadline)}</p>
+                      <p><strong className="text-green-700">Deadline:</strong> {formatDateDisplay(task.deadline)}</p>
                       <p><strong className="text-green-700">Priority:</strong> {task.priority}</p>
                       <p><strong className="text-green-700">Status:</strong> <span className={`font-medium ${task.status === 'completed' ? 'text-green-500' : 'text-yellow-600'}`}>{task.status}</span></p>
                       {task.assignedFile && (
                         <p className="flex items-center">
-                          <Paperclip className="mr-1 text-blue-500" size={16} /> {/* Replaced FaPaperclip */}
+                          <Paperclip className="mr-1 text-blue-500" size={16} />
                           <strong className="text-green-700">Assigned File:</strong>{" "}
                           <a href={task.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">View File</a>
                         </p>
                       )}
                       {task.completedFile && (
                         <p className="flex items-center">
-                          <CheckCircle className="mr-1 text-emerald-500" size={16} /> {/* Replaced FaCheckCircle */}
+                          <CheckCircle className="mr-1 text-emerald-500" size={16} />
                           <strong className="text-green-700">Completed File:</strong>{" "}
                           <a href={task.completedFile} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline ml-1">View File</a>
                         </p>
@@ -1227,14 +994,14 @@ const EmployeeDashboard = () => {
                         onClick={() => handleOpenModal(task)}
                         className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 text-sm"
                       >
-                        <Eye className="mr-1" size={16} /> View Details {/* Replaced GrView */}
+                        <Eye className="mr-1" size={16} /> View Details
                       </button>
                       {task.status !== 'completed' && (
                         <button
-                          onClick={() => handleOpenCompletionModal(task)} // Open new completion modal
+                          onClick={() => handleOpenCompletionModal(task)}
                           className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 transition-colors duration-200 text-sm flex items-center"
                         >
-                          <Check className="mr-1" size={16} /> Mark as Complete {/* Replaced FaCheck */}
+                          <Check className="mr-1" size={16} /> Mark as Complete
                         </button>
                       )}
                     </div>
@@ -1246,26 +1013,107 @@ const EmployeeDashboard = () => {
 
           {activeTab === 'calendar' && (
             <section className="bg-white rounded-lg shadow-md p-6 mb-6">
-              <h2 className="text-3xl font-bold text-green-800 mb-6 border-b-2 border-green-200 pb-3">My Calendar</h2>
-              {/* Replaced CalendarPlanning with inline calendar logic */}
-              <div className="mt-6">
-                <h3 className="text-xl font-semibold text-green-700 mb-4">Upcoming Events</h3>
-                {events.length > 0 ? (
-                  <ul className="space-y-3">
-                    {events.map(event => (
-                      <li key={event.id} className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-200">
-                        <p className="text-md font-medium text-blue-800">{event.title}</p>
-                        <p className="text-sm text-gray-700"><strong className="text-blue-600">Date:</strong> {event.date}</p>
-                        <p className="text-sm text-gray-700"><strong className="text-blue-600">Time:</strong> {event.time}</p>
-                        <p className="text-sm text-gray-700"><strong className="text-blue-600">Location:</strong> {event.location}</p>
-                      </li>
-                    ))}
-                  </ul>
+              <h2 className="text-3xl font-bold text-green-800 mb-6 border-b-2 border-green-200 pb-3">Company Events Calendar</h2>
+              {eventErrorMessage && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{eventErrorMessage}</div>}
+
+              {/* Calendar Header */}
+              <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                <div className="flex justify-between items-center mb-4">
+                  <button onClick={handlePrevMonth} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-md hover:bg-gray-300 transition-colors">
+                    &lt; Prev
+                  </button>
+                  <h2 className="text-2xl font-semibold text-gray-800">
+                    {getMonthName(currentDate.getMonth())} {currentDate.getFullYear()}
+                  </h2>
+                  <button onClick={handleNextMonth} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-md hover:bg-gray-300 transition-colors">
+                    Next &gt;
+                  </button>
+                </div>
+
+                {/* Days of the Week */}
+                <div className="grid grid-cols-7 gap-2 text-center font-medium text-gray-600 mb-2">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                    <div key={day} className="py-2">{day}</div>
+                  ))}
+                </div>
+
+                {/* Calendar Grid */}
+                <div className="grid grid-cols-7 gap-2">
+                  {renderCalendarDays()}
+                </div>
+              </div>
+
+              {/* Event List Section */}
+              <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                  <h2 className="text-xl font-semibold text-green-800">Upcoming Public Events</h2>
+                  <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
+                    <input
+                      type="text"
+                      placeholder="Search events..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="border border-gray-300 p-2 rounded-md focus:ring-green-500 focus:border-green-500 w-full sm:w-auto"
+                    />
+                    <select
+                      value={sortOrder}
+                      onChange={(e) => setSortOrder(e.target.value)}
+                      className="border border-gray-300 p-2 rounded-md focus:ring-green-500 focus:border-green-500 w-full sm:w-auto"
+                    >
+                      <option value="dateAsc">Date (Asc)</option>
+                      <option value="dateDesc">Date (Desc)</option>
+                      <option value="titleAsc">Title (Asc)</option>
+                      <option value="titleDesc">Title (Desc)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {loading ? (
+                  <div className="text-center py-4 text-gray-500">Loading events...</div>
+                ) : filteredEvents.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">No upcoming public events.</div>
                 ) : (
-                  <p className="text-gray-600">No upcoming events.</p>
+                  <div className="space-y-4">
+                    {filteredEvents.map(event => (
+                      <div
+                        key={event.id || event._id}
+                        className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center hover:shadow-lg transition cursor-pointer"
+                        onClick={() => handleOpenEventViewModal(event)}
+                      >
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900">{event.title}</h3>
+                          <p className="text-sm text-gray-600">{event.description}</p>
+                          <p className="text-sm text-gray-500 flex items-center">
+                            <CalendarIconLucide size={14} className="mr-1" />
+                            {formatDateDisplay(event.date)}
+                            <Clock size={14} className="ml-3 mr-1" />
+                            {formatDisplayTime(event.startTime)} {event.endTime && ` - ${formatDisplayTime(event.endTime)}`}
+                            {event.location && (
+                              <>
+                                <MapPin size={14} className="ml-3 mr-1" />
+                                {event.location}
+                              </>
+                            )}
+                          </p>
+                        </div>
+                        <div className="mt-2 sm:mt-0 flex flex-wrap gap-2">
+                          {event.link && (
+                            <a
+                              href={event.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-blue-100 text-blue-800 px-3 py-1 rounded-md text-sm hover:bg-blue-200 flex items-center"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Link2 className="mr-1" size={14} /> View Link
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              {renderCalendarPlanning()} {/* Call the new render function */}
             </section>
           )}
 
@@ -1277,7 +1125,7 @@ const EmployeeDashboard = () => {
                 {!isClockedIn ? (
                   <button
                     onClick={handleClockIn}
-                    className="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition-colors duration-200 text-lg font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    className="bg-green-600 text-white px-5 py-2 rounded-md hover:bg-green-700 transition-colors duration-200 text-lg font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                     disabled={loading}
                   >
                     <LogIn size={20} className="mr-2" />
@@ -1313,7 +1161,7 @@ const EmployeeDashboard = () => {
                 </div>
               )}
 
-              {loading && <p>Loading attendance history...</p>}
+              {loading && <p className="text-gray-500">Loading attendance history...</p>}
               {!loading && attendanceHistory.length === 0 && <p className="text-gray-600">No attendance history found.</p>}
 
               {!loading && attendanceHistory.length > 0 && (
@@ -1325,16 +1173,16 @@ const EmployeeDashboard = () => {
                         <th className="py-3 px-6 text-left">Time In</th>
                         <th className="py-3 px-6 text-left">Time Out</th>
                         <th className="py-3 px-6 text-left">Status</th>
-                        <th className="py-3 px-6 text-left">Info</th> {/* New column for Late/Overtime */}
+                        <th className="py-3 px-6 text-left">Info</th>
                         <th className="py-3 px-6 text-left">Location</th>
                       </tr>
                     </thead>
                     <tbody className="text-gray-700 text-sm font-light">
                       {attendanceHistory.map((record, index) => (
                         <tr key={record._id || record.id || index} className="border-b border-gray-200 hover:bg-gray-50">
-                          <td className="py-3 px-6 text-left whitespace-nowrap">{formatDate(record.date)}</td>
-                          <td className="py-3 px-6 text-left">{formatTime(record.timeIn)}</td>
-                          <td className="py-3 px-6 text-left">{formatTime(record.timeOut)}</td>
+                          <td className="py-3 px-6 text-left whitespace-nowrap">{formatDateDisplay(record.date)}</td>
+                          <td className="py-3 px-6 text-left">{formatDisplayTime(record.timeIn)}</td>
+                          <td className="py-3 px-6 text-left">{formatDisplayTime(record.timeOut)}</td>
                           <td className="py-3 px-6 text-left">
                             <span className={`py-1 px-3 rounded-full text-xs font-medium ${
                               record.status === 'Present' ? 'bg-green-200 text-green-800' :
@@ -1347,11 +1195,10 @@ const EmployeeDashboard = () => {
                           <td className="py-3 px-6 text-left">
                             {record.isLate && <span className="py-1 px-3 rounded-full text-xs font-medium bg-orange-100 text-orange-800 mr-1">Late</span>}
                             {record.isOvertime && <span className="py-1 px-3 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Overtime</span>}
-                            {/* If not late/overtime and present, explicitly show "On Time" */}
                             {!record.isLate && !record.isOvertime && record.status === 'Present' && 'On Time'}
                           </td>
                           <td className="py-3 px-6 text-left">
-                            {record.latitude && record.longitude 
+                            {record.latitude && record.longitude
                               ? `Lat: ${record.latitude.toFixed(4)}, Lon: ${record.longitude.toFixed(4)}`
                               : (record.location || 'N/A')}
                           </td>
@@ -1380,7 +1227,7 @@ const EmployeeDashboard = () => {
             <div className="space-y-4 text-sm text-gray-800">
               <p className="flex items-center"><strong className="w-20 text-green-700">Title:</strong> {selectedTask.title}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Description:</strong> {selectedTask.description}</p>
-              <p className="flex items-center"><strong className="w-20 text-green-700">Deadline:</strong> {formatDate(selectedTask.deadline)}</p>
+              <p className="flex items-center"><strong className="w-20 text-green-700">Deadline:</strong> {formatDateDisplay(selectedTask.deadline)}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Priority:</strong> {selectedTask.priority}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Status:</strong> {selectedTask.status}</p>
               {selectedTask.assignedFile && (
@@ -1420,7 +1267,7 @@ const EmployeeDashboard = () => {
             <div className="space-y-4 text-sm text-gray-800">
               <p><strong className="text-green-700">Task:</strong> {taskToComplete.title}</p>
               <p><strong className="text-green-700">Description:</strong> {taskToComplete.description}</p>
-              
+
               {/* File Upload for Completion */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Upload Completion File (Optional)</label>
@@ -1431,24 +1278,24 @@ const EmployeeDashboard = () => {
                     className="hidden"
                     onChange={handleCompletedFileChange}
                   />
-                  <label 
-                    htmlFor="completedFileInput" 
+                  <label
+                    htmlFor="completedFileInput"
                     className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center hover:bg-blue-600 transition-colors duration-200"
                   >
-                    <Upload className="mr-2" size={16} /> Choose File {/* Replaced FaUpload */}
+                    <Upload className="mr-2" size={16} /> Choose File
                   </label>
                   {completedFile && (
                     <div className="flex items-center text-slate-700">
                       <span>{completedFile.name}</span>
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={() => {
                           setCompletedFile(null);
                           document.getElementById('completedFileInput').value = '';
                         }}
                         className="ml-2 text-red-500 hover:text-red-700"
                       >
-                        <XCircle size={16} /> {/* Replaced FaTimesCircle */}
+                        <XCircle size={16} />
                       </button>
                     </div>
                   )}
@@ -1472,6 +1319,51 @@ const EmployeeDashboard = () => {
                 disabled={uploadingCompletedFile}
               >
                 {uploadingCompletedFile ? 'Uploading & Completing...' : 'Confirm Completion'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Event Details View Modal for Employee Dashboard */}
+      {isEventViewModalOpen && selectedEvent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 relative">
+            <button
+              onClick={handleCloseEventViewModal}
+              className="absolute top-3 right-3 text-gray-600 hover:text-gray-900 text-2xl font-bold"
+            >
+              &times;
+            </button>
+            <h3 className="text-2xl font-semibold mb-6 text-green-900 border-b-2 border-green-300 pb-2">Event Details</h3>
+            <div className="space-y-4 text-sm text-gray-800">
+              <p className="flex items-center"><strong className="w-24 text-green-700">Title:</strong> {selectedEvent.title}</p>
+              <p className="flex items-center"><strong className="w-24 text-green-700">Description:</strong> {selectedEvent.description}</p>
+              <p className="flex items-center"><CalendarIconLucide size={16} className="mr-2 text-green-700" />
+                <strong className="w-24 text-green-700">Date:</strong> {formatDateDisplay(selectedEvent.date)}
+              </p>
+              <p className="flex items-center"><Clock size={16} className="mr-2 text-green-700" />
+                <strong className="w-24 text-green-700">Time:</strong> {formatDisplayTime(selectedEvent.startTime)} {selectedEvent.endTime && ` - ${formatDisplayTime(selectedEvent.endTime)}`}
+              </p>
+              <p className="flex items-center"><MapPin size={16} className="mr-2 text-green-700" />
+                <strong className="w-24 text-green-700">Location:</strong> {selectedEvent.location || 'N/A'}
+              </p>
+              <p className="flex items-center"><strong className="w-24 text-green-700">Type:</strong> {selectedEvent.type}</p>
+              <p className="flex items-center"><strong className="w-24 text-green-700">Visibility:</strong> {selectedEvent.visibility}</p>
+              {selectedEvent.link && (
+                <p className="flex items-center">
+                  <Link2 size={16} className="mr-2 text-green-700" />
+                  <strong className="w-24 text-green-700">Link:</strong>{" "}
+                  <a href={selectedEvent.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Event Link</a>
+                </p>
+              )}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={handleCloseEventViewModal}
+                className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors duration-200"
+              >
+                Close
               </button>
             </div>
           </div>

@@ -228,6 +228,13 @@ export const createManualAttendance = async (req, res) => {
     console.log('Request body:', req.body);
     console.log('Admin user:', req.user.id);
     
+    // IMPORTANT: If you are getting "Access denied" errors for Administrators,
+    // verify how your 'authorize' middleware (in authMiddleware.js) handles
+    // role names. It might be case-sensitive ('admin' vs 'Administrator')
+    // or not mapping certain roles correctly. Ensure the role passed to
+    // authorize() in routes/attendance.js matches what's stored for the user
+    // or modify the middleware to be more flexible.
+
     // Validation
     if (!employeeId || !date || !timeIn || !status) {
       return res.status(400).json({
@@ -273,6 +280,7 @@ export const createManualAttendance = async (req, res) => {
           return fullDateTime;
       }
       // Fallback for formats like "HH:MM AM/PM" not directly parsable with 'T'
+      // This part might need more robust parsing if the time format is highly variable.
       const [hour, minute] = timeStr.split(':');
       const newDate = new Date(dateObj); // Clone the date to avoid mutation
       newDate.setHours(parseInt(hour), parseInt(minute), 0, 0);
@@ -283,6 +291,7 @@ export const createManualAttendance = async (req, res) => {
     const clockOutDateTime = parseTimeString(attendanceDate, timeOut); // Will be null if timeOut not provided
 
     // Calculate isLate based on clockInDateTime
+    // Assuming 'Late' status for clock-ins before 7 AM or at/after 10 AM
     const calculatedIsLate = (clockInDateTime && (clockInDateTime.getHours() < 7 || clockInDateTime.getHours() >= 10));
 
     // Calculate duration in minutes for overtime calculation

@@ -28,7 +28,7 @@ const EmployeePendingPage = () => {
 
     // If employee is already approved, redirect to dashboard
     if (userData.status === 'approved') {
-      navigate('/employee');
+      navigate('/login');
       return;
     }
 
@@ -171,7 +171,7 @@ const EmployeePendingPage = () => {
         
         // Redirect to employee dashboard after approval
         setTimeout(() => {
-          navigate('/employee');
+          navigate('/login');
         }, 3000);
         
       } else if (data.type === 'rejection') {
@@ -315,7 +315,7 @@ const EmployeePendingPage = () => {
       }
       
       // Navigate regardless of whether we could fetch latest data
-      navigate('/employee');
+      navigate('/login');
     }
   };
 

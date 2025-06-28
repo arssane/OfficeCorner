@@ -12,6 +12,7 @@ import SignupPage from './Components/SignupForm';
 import LoginPage from './Components/LoginForm';
 import useNotifications from './hooks/useNotification.js';
 import EmployeePendingPage from './Pages/EmployeePendingPage.jsx';
+import MyProfile from './Components/MyProfile.jsx'
 
 // Separate component to use the notification hook
 const AppContent = () => {
@@ -27,6 +28,7 @@ const AppContent = () => {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path='/employee-pending' element={<EmployeePendingPage/>}/>
+        <Route path='/profile' element={<MyProfile />}/>
       </Routes>
       
       {/* Toast Container for notifications */}

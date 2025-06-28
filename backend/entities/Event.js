@@ -8,10 +8,11 @@ const eventSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    trim: true
+    trim: true,
+    default: '' // Ensure default for consistency
   },
   date: {
-    type: String,
+    type: String, // Storing as YYYY-MM-DD string
     required: [true, 'Event date is required']
   },
   startTime: {
@@ -21,6 +22,26 @@ const eventSchema = new mongoose.Schema({
   endTime: {
     type: String,
     default: "10:00" // Default end time
+  },
+  location: { // Added location field
+    type: String,
+    trim: true,
+    default: ''
+  },
+  type: { // Added type field
+    type: String,
+    enum: ['meeting', 'announcement', 'holiday', 'other'],
+    default: 'other'
+  },
+  visibility: { // Added visibility field
+    type: String,
+    enum: ['public', 'private'],
+    default: 'public' // Default to public so employees can see it
+  },
+  link: { // Added link field
+    type: String,
+    trim: true,
+    default: ''
   },
   createdAt: {
     type: Date,

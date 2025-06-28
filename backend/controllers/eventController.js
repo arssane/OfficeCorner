@@ -3,7 +3,7 @@ import Event from '../entities/Event.js';
 // Get all events
 export const getAllEvents = async (req, res) => {
   try {
-    const events = await Event.find().sort({ date: 1 });
+    const events = await Event.find().sort({ date: 1, startTime: 1 }); // Sort by start time too
     
     res.status(200).json({
       success: true,
@@ -22,7 +22,8 @@ export const getAllEvents = async (req, res) => {
 // Create a new event
 export const createEvent = async (req, res) => {
   try {
-    const { title, description, date, startTime, endTime } = req.body;
+    // Destructure all expected fields, including new ones
+    const { title, description, date, startTime, endTime, location, type, visibility, link } = req.body;
     
     if (!title || !date) {
       return res.status(400).json({
@@ -36,7 +37,11 @@ export const createEvent = async (req, res) => {
       description,
       date,
       startTime,
-      endTime
+      endTime,
+      location,   // Save new fields
+      type,       // Save new fields
+      visibility, // Save new fields
+      link        // Save new fields
     });
     
     res.status(201).json({
@@ -50,8 +55,7 @@ export const createEvent = async (req, res) => {
       const messages = Object.values(error.errors).map(val => val.message);
       return res.status(400).json({
         success: false,
-        message: messages.join(', ')
-      });
+        message: messages.join(', ')});
     }
     
     res.status(500).json({
@@ -97,12 +101,13 @@ export const getEvent = async (req, res) => {
 // Update an event
 export const updateEvent = async (req, res) => {
   try {
-    const { title, description, date, startTime, endTime } = req.body;
+    // Destructure all expected fields for update
+    const { title, description, date, startTime, endTime, location, type, visibility, link } = req.body;
     
     // Find and update event
     const event = await Event.findByIdAndUpdate(
       req.params.id,
-      { title, description, date, startTime, endTime },
+      { title, description, date, startTime, endTime, location, type, visibility, link }, // Include new fields here
       { new: true, runValidators: true }
     );
     
