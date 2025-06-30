@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { FaEdit, FaTrash, FaSync, FaPlus, FaClock, FaUser, FaFlag, FaCheck, FaPaperclip, FaUpload, FaTimesCircle } from "react-icons/fa"; // Added FaPaperclip, FaUpload, FaTimesCircle
+import React, { useState, useEffect, useRef } from "react"; // Imported useRef for click outside detection
+// Removed react-icons/fa import as it was causing a compilation error.
+// Replacing with inline SVGs for the necessary icons.
 
 const TaskManagement = () => {
   // Initialize state from localStorage if available
@@ -9,7 +10,7 @@ const TaskManagement = () => {
   });
   
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isEditFromModal, setIsEditFromModal] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState(null);
   const [taskToEdit, setTaskToEdit] = useState(null);
@@ -41,11 +42,29 @@ const TaskManagement = () => {
     priority: "medium",
     assignedTo: "",
     status: "pending",
-    assignedFile: null, // New state for assigned file URL
+    assignedFile: null,
   });
 
-  const [assignedFile, setAssignedFile] = useState(null); // For handling the file object to upload
-  const [uploadingFile, setUploadingFile] = useState(false); // To show loading state for file upload
+  const [assignedFile, setAssignedFile] = useState(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState("");
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false); // New state to control dropdown visibility
+
+  const assignToRef = useRef(null); // Ref for click outside logic
+
+  // Effect to handle clicks outside the employee dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (assignToRef.current && !assignToRef.current.contains(event.target)) {
+        setShowEmployeeDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [assignToRef]);
 
 
   // Save tasks to localStorage whenever they change
@@ -77,21 +96,20 @@ const TaskManagement = () => {
     }, 30000);
     
     return () => clearInterval(refreshInterval);
-  }, [isAuthenticated, employees.length]); // Add isAuthenticated and employees.length to dependencies
+  }, [isAuthenticated, employees.length]);
 
   useEffect(() => {
     if (isAuthenticated) {
       const token = localStorage.getItem("token");
       if (token) {
-        fetchData(token);  // Always fetch latest data from backend
+        fetchData(token);
       }
     } else {
-      // If not authenticated, ensure tasks are loaded from local storage
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
         setTasks(JSON.parse(savedTasks));
       }
-      setLoading(false); // Ensure loading state is cleared
+      setLoading(false);
     }
   }, [isAuthenticated]);
 
@@ -100,11 +118,10 @@ const TaskManagement = () => {
     const token = localStorage.getItem("token");
     
     if (!token) {
-      // No token, just show cached data
       setIsAuthenticated(false);
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
-        setTasks(JSON.parse(savedTasks)); // Ensure tasks are loaded from local storage
+        setTasks(JSON.parse(savedTasks));
       }
       if (tasks.length === 0 && (!savedTasks || JSON.parse(savedTasks).length === 0)) {
         setError("Not logged in. Please log in to fetch tasks.");
@@ -117,14 +134,13 @@ const TaskManagement = () => {
     
     setIsAuthenticated(true);
     
-    // Try to fetch fresh data, but don't clear existing data on failure
     try {
       await fetchData(token);
     } catch (err) {
       console.log("Failed to fetch fresh data:", err);
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
-        setTasks(JSON.parse(savedTasks)); // Fallback to local storage on fetch failure
+        setTasks(JSON.parse(savedTasks));
       }
       if (tasks.length === 0 && (!savedTasks || JSON.parse(savedTasks).length === 0)) {
         setError("Failed to sync with server. No cached tasks available.");
@@ -136,7 +152,6 @@ const TaskManagement = () => {
     }
   };
 
-  // Check API endpoint and try options
   const checkEndpoints = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -159,7 +174,6 @@ const TaskManagement = () => {
           `${baseUrl}/api/task`
         ];
         
-        // Updated employee/user endpoints
         const employeeEndpoints = [
           `${baseUrl}/auth/users`,
           `${baseUrl}/users`,
@@ -171,7 +185,6 @@ const TaskManagement = () => {
           `${baseUrl}/api/employee`
         ];
         
-        // Try task endpoints with this base URL
         let tasksData = null;
         let workingTaskEndpoint = null;
         
@@ -218,7 +231,6 @@ const TaskManagement = () => {
                 const rawData = await response.json();
                 console.log(`Raw employee data from ${endpoint}:`, rawData);
                 
-                // Handle different response structures
                 if (Array.isArray(rawData)) {
                   employeesData = rawData;
                 } else if (rawData.users && Array.isArray(rawData.users)) {
@@ -240,7 +252,6 @@ const TaskManagement = () => {
           
           if (workingTaskEndpoint) {
             localStorage.setItem("taskEndpoint", workingTaskEndpoint);
-            // Update tasks with server data
             if (tasksData) {
               const taskArray = Array.isArray(tasksData) ? tasksData : [];
               setTasks(taskArray);
@@ -250,14 +261,13 @@ const TaskManagement = () => {
           if (workingEmployeeEndpoint && employeesData) {
             localStorage.setItem("employeeEndpoint", workingEmployeeEndpoint);
             
-            // Process employees to ensure consistent structure
             const processedEmployees = employeesData.map(emp => ({
               _id: emp._id || emp.id,
               id: emp.id || emp._id,
               name: emp.name || emp.username || emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unknown',
               username: emp.username,
               email: emp.email,
-              role: emp.role // Assuming the API returns a 'role' field
+              role: emp.role
             }));
             
             setEmployees(processedEmployees);
@@ -272,14 +282,12 @@ const TaskManagement = () => {
       }
       
       setError("Could not find any working API endpoints. Using cached data.");
-      // Ensure tasks are loaded from local storage if API endpoints are not found
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
         setTasks(JSON.parse(savedTasks));
       }
     } catch (err) {
       setError(`API endpoint check failed: ${err.message}. Using cached data.`);
-      // Ensure tasks are loaded from local storage on error
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
         setTasks(JSON.parse(savedTasks));
@@ -289,14 +297,12 @@ const TaskManagement = () => {
     }
   };
 
-  // Check if the user is authenticated
   const checkAuthentication = () => {
     const token = localStorage.getItem("token");
     if (!token) {
       setError("Authentication token not found. Showing cached tasks.");
       setIsAuthenticated(false);
       setLoading(false);
-      // Ensure tasks are loaded from local storage when not authenticated
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
         setTasks(JSON.parse(savedTasks));
@@ -311,26 +317,22 @@ const TaskManagement = () => {
     }
   };
 
-  // Fetch tasks and employees with the provided token
   const fetchData = (token) => {
     fetchTasks(token);
     fetchEmployees(token);
   };
 
-  // Get the task endpoint
   const getTaskEndpoint = () => {
     const storedEndpoint = localStorage.getItem("taskEndpoint");
     return storedEndpoint || `${currentApiBaseUrl}/tasks`;
   };
 
-  // Get the employee endpoint
   const getEmployeeEndpoint = () => {
     const storedEndpoint = localStorage.getItem("employeeEndpoint");
     return storedEndpoint || `${currentApiBaseUrl}/users`;
   };
 
-  // Fetch tasks with token
- const fetchTasks = async (token) => {
+  const fetchTasks = async (token) => {
     try {
       setLoading(true);
       
@@ -349,7 +351,6 @@ const TaskManagement = () => {
         
         let taskArray = [];
         
-        // Handle different response structures
         if (Array.isArray(tasksData)) {
           taskArray = tasksData;
         } else if (tasksData.tasks && Array.isArray(tasksData.tasks)) {
@@ -361,8 +362,6 @@ const TaskManagement = () => {
         console.log('Processed task array:', taskArray);
         console.log('Current tasks count:', tasks.length);
         
-        // CRITICAL FIX: Only update tasks if we got meaningful data
-        // Don't overwrite existing tasks with empty array unless we're sure that's correct
         if (taskArray.length > 0 || tasks.length === 0) {
           setTasks(taskArray);
           console.log('Tasks updated with server data');
@@ -371,7 +370,6 @@ const TaskManagement = () => {
           setError("Server returned no tasks. Showing cached data.");
         }
         
-        // Clear any previous errors if we got a successful response
         if (taskArray.length > 0) {
           setError(null);
         }
@@ -380,7 +378,6 @@ const TaskManagement = () => {
         setError("Session expired. Showing cached tasks. Please log in to refresh.");
         localStorage.removeItem("token");
         setIsAuthenticated(false);
-        // Ensure tasks are loaded from local storage on 401
         const savedTasks = localStorage.getItem('tasks');
         if (savedTasks) {
           setTasks(JSON.parse(savedTasks));
@@ -388,7 +385,6 @@ const TaskManagement = () => {
       } else {
         console.log('API response not OK:', response.status, response.statusText);
         setError(`API returned an error: ${response.status} - ${response.statusText}. Using cached tasks.`);
-        // Ensure tasks are loaded from local storage on other API errors
         const savedTasks = localStorage.getItem('tasks');
         if (savedTasks) {
           setTasks(JSON.parse(savedTasks));
@@ -397,7 +393,6 @@ const TaskManagement = () => {
     } catch (err) {
       console.log("Error fetching tasks:", err);
       setError("Network error. Showing cached tasks.");
-      // Ensure tasks are loaded from local storage on network errors
       const savedTasks = localStorage.getItem('tasks');
       if (savedTasks) {
         setTasks(JSON.parse(savedTasks));
@@ -407,7 +402,6 @@ const TaskManagement = () => {
     }
   };
 
-  // Fetch employees with token
   const fetchEmployees = async (token) => {
     try {
       const response = await fetch(getEmployeeEndpoint(), {
@@ -423,7 +417,6 @@ const TaskManagement = () => {
         const employeesData = await response.json();
         let employeeArray = [];
         
-        // Handle different response structures
         if (Array.isArray(employeesData)) {
           employeeArray = employeesData;
         } else if (employeesData.users && Array.isArray(employeesData.users)) {
@@ -432,17 +425,15 @@ const TaskManagement = () => {
           employeeArray = employeesData.data;
         }
         
-        // Ensure each employee has the required fields
         employeeArray = employeeArray.map(emp => ({
           _id: emp._id || emp.id,
           id: emp.id || emp._id,
           name: emp.name || emp.username || emp.fullName || `${emp.firstName} ${emp.lastName}`.trim(),
           username: emp.username,
           email: emp.email,
-          role: emp.role // *** Add this line to capture the role from the API response ***
+          role: emp.role 
         }));
         
-        // Only update employees if we got data from the server
         if (employeeArray.length > 0) {
           setEmployees(employeeArray);
           localStorage.setItem('employees', JSON.stringify(employeeArray));
@@ -451,18 +442,13 @@ const TaskManagement = () => {
       }
     } catch (err) {
       console.log("Error fetching employees:", err);
-      // Keep using cached employees
     }
   };
 
-  // Handle file input change for assigned file
   const handleAssignedFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setAssignedFile(file);
-      // It's better to store just the file object here, not the name,
-      // as the actual URL will come from Cloudinary.
-      // Keeping the file name in newTask.assignedFile for display is fine for now.
       setNewTask(prev => ({ ...prev, assignedFile: file.name })); 
     } else {
       setAssignedFile(null);
@@ -470,7 +456,6 @@ const TaskManagement = () => {
     }
   };
 
-  // Upload file to Cloudinary
   const uploadFileToCloudinary = async (file) => {
     if (!file) return null;
 
@@ -483,45 +468,38 @@ const TaskManagement = () => {
     }
 
     const uploadUrl = `${currentApiBaseUrl}/files/upload`;
-    console.log("Attempting file upload to:", uploadUrl); // Log the upload URL
 
     const formData = new FormData();
-    formData.append('file', file); // 'file' is the field name expected by Multer
+    formData.append('file', file);
 
     try {
       const response = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
-          // 'Content-Type' is not set for FormData, it's handled automatically by the browser
         },
         body: formData,
-        signal: AbortSignal.timeout(60000) // Longer timeout for file uploads
+        signal: AbortSignal.timeout(60000)
       });
 
       if (response.ok) {
         const data = await response.json();
-        setError(null); // Clear any previous file upload errors
-        console.log("File uploaded successfully:", data.url);
-        return data.url; // Return the Cloudinary URL
+        setError(null);
+        return data.url;
       } else {
         const errorData = await response.json();
         const errorMessage = errorData.message || response.statusText || 'Unknown error during upload';
         setError(`File upload failed: ${errorMessage}. Status: ${response.status}`);
-        console.error("File upload failed with response:", errorData);
         return null;
       }
     } catch (err) {
       setError(`File upload network error: ${err.message}. Please check your connection or server.`);
-      console.error("File upload caught an error:", err);
       return null;
     } finally {
       setUploadingFile(false);
     }
   };
 
-
-  // Create a new task
   const handleAddTask = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -531,21 +509,21 @@ const TaskManagement = () => {
         return;
       }
 
-      setLoading(true); // Start general loading for task creation
+      setLoading(true);
 
       let fileUrl = null;
       if (assignedFile) {
         fileUrl = await uploadFileToCloudinary(assignedFile);
         if (!fileUrl) {
-          setError("Failed to upload assigned file. Task not created."); // Specific error message
-          setLoading(false); // Ensure loading is off
-          return; // Stop function execution if file upload fails
+          setError("Failed to upload assigned file. Task not created.");
+          setLoading(false);
+          return;
         }
       }
 
       const taskDataToSend = {
         ...newTask,
-        assignedFile: fileUrl, // Use the URL obtained from Cloudinary
+        assignedFile: fileUrl,
       };
 
       const response = await fetch(getTaskEndpoint(), {
@@ -555,19 +533,17 @@ const TaskManagement = () => {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(taskDataToSend), // Send task data with file URL
+        body: JSON.stringify(taskDataToSend),
         signal: AbortSignal.timeout(10000)
       });
       
       if (response && response.ok) {
         const data = await response.json();
         setTasks([...tasks, data]);
-        setError(null); // Clear any previous errors
-        console.log("Task created successfully:", data);
+        setError(null);
       } else {
         const errorData = await response.json();
         setError(`Failed to create task: ${errorData.message || response.statusText}. Status: ${response.status}`);
-        console.error("Task creation failed with response:", errorData);
       }
       
       setIsAddOpen(false);
@@ -580,27 +556,25 @@ const TaskManagement = () => {
         status: "pending",
         assignedFile: null,
       });
-      setAssignedFile(null); // Clear file input state
+      setAssignedFile(null);
+      setEmployeeSearchQuery(""); // Clear search query on modal close
     } catch (err) {
       setError(`Failed to create task: ${err.message}. Please check server logs for details.`);
-      console.error("Error during task creation (caught by handleAddTask):", err);
     } finally {
-      setLoading(false); // Ensure loading is always turned off
+      setLoading(false);
     }
   };
 
-  // Update existing task
   const handleEditTask = async () => {
     try {
       const token = localStorage.getItem("token");
       const taskId = taskToEdit.id || taskToEdit._id;
       
       if (!token) {
-        // If not authenticated, update local tasks
         setTasks(tasks.map(task => 
           (task.id === taskId || task._id === taskId) ? taskToEdit : task
         ));
-        setIsEditOpen(false);
+        setIsEditFromModal(false);
         setTaskToEdit(null);
         return;
       }
@@ -614,7 +588,6 @@ const TaskManagement = () => {
         updateEndpoint = `${taskEndpoint}/${taskId}`;
       }
       
-      // Update locally first to ensure we don't lose changes even if API fails
       setTasks(tasks.map(task => 
         (task.id === taskId || task._id === taskId) ? taskToEdit : task
       ));
@@ -629,36 +602,33 @@ const TaskManagement = () => {
         body: JSON.stringify(taskToEdit),
         signal: AbortSignal.timeout(10000)
       }).catch(err => {
-        // Allow the local update to proceed even if API fails
         console.log("API update failed, but task was updated locally:", err);
         return null;
       });
       
       if (response && response.ok) {
-        // Update with server response data if available
         const data = await response.json();
         setTasks(tasks.map(task => 
           (task.id === taskId || task._id === taskId) ? data : task
         ));
       }
       
-      setIsEditOpen(false);
+      setIsEditFromModal(false);
       setTaskToEdit(null);
+      setEmployeeSearchQuery(""); // Clear search query on modal close
     } catch (err) {
       setError(`Failed to update task on server: ${err.message}. Changes were saved locally.`);
     }
   };
 
-  // Delete task
   const handleDeleteTask = async () => {
     try {
       const token = localStorage.getItem("token");
-      const userRole = localStorage.getItem("userRole"); // Make sure you store this on login
+      const userRole = localStorage.getItem("userRole");
       
       if (token) {
         try {
           const taskEndpoint = getTaskEndpoint();
-          // Use admin endpoint for admins, regular endpoint for others
           const deleteUrl = userRole === 'Administrator' 
             ? `${taskEndpoint}/admin/${taskToDelete}`
             : `${taskEndpoint}/${taskToDelete}`;
@@ -675,14 +645,10 @@ const TaskManagement = () => {
           });
           
           if (response.status === 204) {
-            // Only delete locally after successful server deletion
             setTasks(tasks.filter(task => 
               task.id !== taskToDelete && task._id !== taskToDelete
             ));
-            
-            console.log("Task successfully deleted on server and locally");
           } else {
-            // If server deletion fails, log error and don't delete locally
             const errorData = await response.json();
             console.error("Server deletion failed:", errorData);
             setError(`Failed to delete task on server: ${errorData.message || response.statusText}`);
@@ -696,14 +662,12 @@ const TaskManagement = () => {
           setError(`Failed to delete task: ${apiErr.message}. Task was not deleted from server.`);
           setIsDeleteOpen(false);
           setTaskToDelete(null);
-          return; // Don't delete locally if server deletion failed
+          return;
         }
       } else {
-        // If not authenticated, delete locally
         setTasks(tasks.filter(task => 
           task.id !== taskToDelete && task._id !== taskToDelete
         ));
-        console.log("Task successfully deleted locally (not authenticated)");
       }
       
       setIsDeleteOpen(false);
@@ -717,54 +681,56 @@ const TaskManagement = () => {
     }
   };
 
-  // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return "No date";
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  // Find employee name by ID
   const getEmployeeName = (assignedTo) => {
-    console.log('getEmployeeName called with:', assignedTo);
-    console.log('Type of assignedTo:', typeof assignedTo);
-    console.log('Available employees:', employees);
-    
     if (!assignedTo) {
-      console.log('No assignedTo value, returning Unassigned');
       return "Unassigned";
     }
     
-    // If assignedTo is already populated (object with name property)
-    if (typeof assignedTo === 'object' && assignedTo !== null && assignedTo.name) {
-      console.log('assignedTo is populated object, returning:', assignedTo.name);
-      return assignedTo.name;
+    if (typeof assignedTo === 'object' && assignedTo !== null) {
+      if (assignedTo.username) return `${assignedTo.name} (${assignedTo.username})`;
+      if (assignedTo.name) return assignedTo.name;
     }
     
-    // If assignedTo is just an ID (string), look it up in employees array
     if (typeof assignedTo === 'string') {
-      console.log('assignedTo is string ID, searching in employees...');
-      const employee = employees.find(emp => {
-        const match = (emp._id === assignedTo || emp.id === assignedTo);
-        console.log(`Checking employee ${emp.name} (${emp._id || emp.id}) against ${assignedTo}: ${match}`);
-        return match;
-      });
+      const employee = employees.find(emp => (emp._id === assignedTo || emp.id === assignedTo));
       
       if (employee) {
-        console.log('Found employee:', employee.name);
-        return employee.name;
+        return employee.username ? `${employee.name} (${employee.username})` : employee.name;
       } else {
-        console.log('No employee found for ID:', assignedTo);
         return `Unknown Employee (${assignedTo})`;
       }
     }
     
-    console.log('Fallback: returning Unassigned');
     return "Unassigned";
   };
 
-  // Filtered employees for dropdowns (excluding 'Administrator' role)
-  const assignableEmployees = employees.filter(employee => employee.role !== 'Administrator');
+  const assignableEmployees = employees.filter(employee => 
+    employee.role !== 'Administrator' &&
+    (employee.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase()) || 
+     employee.username?.toLowerCase().includes(employeeSearchQuery.toLowerCase()))
+  );
+
+  // Set the search query based on the current assigned employee when modal opens
+  useEffect(() => {
+    if (isAddOpen) {
+      setEmployeeSearchQuery(""); // Clear search on Add modal open
+      setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear assignedTo
+    }
+    if (isEditFromModal && taskToEdit) {
+      const assignedEmployee = employees.find(emp => (emp._id === taskToEdit.assignedTo || emp.id === taskToEdit.assignedTo));
+      if (assignedEmployee) {
+        setEmployeeSearchQuery(assignedEmployee.username ? `${assignedEmployee.name} (${assignedEmployee.username})` : assignedEmployee.name);
+      } else {
+        setEmployeeSearchQuery("");
+      }
+    }
+  }, [isAddOpen, isEditFromModal, taskToEdit, employees]);
 
   if (loading && tasks.length === 0) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
@@ -816,7 +782,8 @@ const TaskManagement = () => {
             </h1>
             {lastUpdated && (
               <p className="text-sm text-slate-500 flex items-center mt-2">
-                <FaClock className="mr-2" />
+                {/* FaClock Icon */}
+                <svg className="mr-2" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l3 3a1 1 0 001.414-1.414L11 9.586V6z" clipRule="evenodd"></path></svg>
                 Last updated: {new Date(lastUpdated).toLocaleString()}
                 {!isAuthenticated && (
                   <span className="ml-2 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs">
@@ -837,14 +804,18 @@ const TaskManagement = () => {
                   }
                 }}
               >
-                <FaSync className="mr-2" /> Refresh
+                {/* FaSync Icon */}
+                <svg className="mr-2" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.666 5.657L18 10a1 1 0 110 2l-1.333-.001C15.438 12.012 13.78 11 12 11H9.5a1 1 0 01-.8-.4l-2.5-3.5A1 1 0 015 6h-.5A1.5 1.5 0 003 7.5v2.75a.75.75 0 01-1.5 0v-2.75a3 3 0 013-3h.5A3 3 0 018 3.5V3a1 1 0 011-1h6a1 1 0 011 1v.75A.75.75 0 0115.25 4.5h-.75V3H10a1 1 0 00-1-1H4z" clipRule="evenodd"></path></svg>
+                Refresh
               </button>
             )}
             <button
               className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-2 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:scale-105 flex items-center"
               onClick={() => setIsAddOpen(true)}
             >
-              <FaPlus className="mr-2" /> Add Task
+              {/* FaPlus Icon */}
+              <svg className="mr-2" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd"></path></svg>
+              Add Task
             </button>
           </div>
         </div>
@@ -895,7 +866,7 @@ const TaskManagement = () => {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Due Date</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Priority</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Files</th> {/* New column */}
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Files</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -910,13 +881,15 @@ const TaskManagement = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <FaUser className="mr-2 text-slate-400" />
+                          {/* FaUser Icon */}
+                          <svg className="mr-2 text-slate-400" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>
                           <span className="text-slate-700">{getEmployeeName(task.assignedTo)}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <FaClock className="mr-2" />
+                          {/* FaClock Icon */}
+                          <svg className="mr-2" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l3 3a1 1 0 001.414-1.414L11 9.586V6z" clipRule="evenodd"></path></svg>
                           <span className="text-slate-700">{formatDate(task.deadline)}</span>
                         </div>
                       </td>
@@ -928,7 +901,8 @@ const TaskManagement = () => {
                             ? "bg-yellow-100 text-yellow-800 border border-yellow-200" 
                             : "bg-green-100 text-green-800 border border-green-200"
                         }`}>
-                          <FaFlag className="mr-1" />
+                          {/* FaFlag Icon */}
+                          <svg className="mr-1" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a3 3 0 01-3-3V6zm-3 0a2 2 0 012-2h14a.5.5 0 01.4.8L16.25 7l2.15 2.8a.5.5 0 01-.4.8H2a2 2 0 01-2-2V6z" clipRule="evenodd"></path></svg>
                           {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
                         </span>
                       </td>
@@ -940,7 +914,10 @@ const TaskManagement = () => {
                             ? "bg-blue-100 text-blue-800 border border-blue-200" 
                             : "bg-emerald-100 text-emerald-800 border border-emerald-200"
                         }`}>
-                          {task.status === "completed" && <FaCheck className="mr-1" />}
+                          {task.status === "completed" && (
+                            // FaCheck Icon
+                            <svg className="mr-1" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
+                          )}
                           {task.status.charAt(0).toUpperCase() + task.status.slice(1).replace('-', ' ')}
                         </span>
                       </td>
@@ -948,7 +925,8 @@ const TaskManagement = () => {
                       <td className="px-6 py-4 text-sm text-slate-700">
                         {task.assignedFile && (
                           <div className="flex items-center mb-1">
-                            <FaPaperclip className="mr-2 text-blue-500" />
+                            {/* FaPaperclip Icon */}
+                            <svg className="mr-2 text-blue-500" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1a1 1 0 100 2h1a1 1 0 01-1.707.707l-7-7a1 1 0 010-1.414z" clipRule="evenodd"></path><path fillRule="evenodd" d="M10 12a2 2 0 10-4 0v3a2 2 0 104 0v-3z" clipRule="evenodd"></path></svg>
                             <a 
                               href={task.assignedFile} 
                               target="_blank" 
@@ -961,7 +939,8 @@ const TaskManagement = () => {
                         )}
                         {task.completedFile && (
                           <div className="flex items-center">
-                            <FaCheck className="mr-2 text-emerald-500" />
+                            {/* FaCheck Icon */}
+                            <svg className="mr-2 text-emerald-500" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
                             <a 
                               href={task.completedFile} 
                               target="_blank" 
@@ -982,10 +961,11 @@ const TaskManagement = () => {
                             className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-all duration-200"
                             onClick={() => {
                               setTaskToEdit(task);
-                              setIsEditOpen(true);
+                              setIsEditFromModal(true);
                             }}
                           >
-                            <FaEdit size={16} />
+                            {/* FaEdit Icon */}
+                            <svg fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path d="M13.586 3.586a2 2 0 112.828 2.828L15.172 8.414L12 5.242l1.586-1.586zM3 17.25V14l10-10l3.25 3.25l-10 10H3z" fillRule="evenodd"></path></svg>
                           </button>
                           <button
                             className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-all duration-200"
@@ -994,7 +974,8 @@ const TaskManagement = () => {
                               setIsDeleteOpen(true);
                             }}
                           >
-                            <FaTrash size={16} />
+                            {/* FaTrash Icon */}
+                            <svg fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm3 3a1 1 0 011 1v3a1 1 0 11-2 0v-3a1 1 0 011-1z" clipRule="evenodd"></path></svg>
                           </button>
                         </div>
                       </td>
@@ -1060,21 +1041,43 @@ const TaskManagement = () => {
                   </select>
                 </div>
                 
-                <div>
+                {/* Unified Assign To Search and Select */}
+                <div className="relative" ref={assignToRef}>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
-                  <select
-                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                    value={newTask.assignedTo}
-                    onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
-                  >
-                    <option value="">Select Employee</option>
-                    {/* Use assignableEmployees here */}
-                    {assignableEmployees.map(employee => (
-                      <option key={employee._id || employee.id} value={employee._id || employee.id}>
-                        {employee.name}
-                      </option>
-                    ))}
-                  </select>
+                  <input
+                    type="text"
+                    placeholder="Search or select employee"
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    value={employeeSearchQuery}
+                    onChange={(e) => {
+                      setEmployeeSearchQuery(e.target.value);
+                      setShowEmployeeDropdown(true); // Show dropdown on type
+                      setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear selection if typing
+                    }}
+                    onFocus={() => setShowEmployeeDropdown(true)} // Show dropdown on focus
+                  />
+                  {showEmployeeDropdown && (
+                    <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-xl mt-1 max-h-60 overflow-y-auto shadow-lg">
+                      {assignableEmployees.length > 0 ? (
+                        assignableEmployees.map(employee => (
+                          <li
+                            key={employee._id || employee.id}
+                            className="p-3 hover:bg-slate-100 cursor-pointer text-slate-800"
+                            onClick={() => {
+                              const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
+                              setEmployeeSearchQuery(displayName);
+                              setNewTask(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                              setShowEmployeeDropdown(false);
+                            }}
+                          >
+                            {employee.name} {employee.username && `(${employee.username})`}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="p-3 text-slate-500">No employees found.</li>
+                      )}
+                    </ul>
+                  )}
                 </div>
                 
                 <div>
@@ -1097,14 +1100,16 @@ const TaskManagement = () => {
                     <input
                       type="file"
                       id="assignedFileInput"
-                      className="hidden" // Hide default file input
+                      className="hidden"
                       onChange={handleAssignedFileChange}
                     />
                     <label 
                       htmlFor="assignedFileInput" 
                       className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center hover:bg-blue-600 transition-colors duration-200"
                     >
-                      <FaUpload className="mr-2" /> Choose File
+                      {/* FaUpload Icon */}
+                      <svg className="mr-2" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-3.382l-.724-1.447A1 1 0 0011 2H9a1 1 0 00-.894.553L7.382 5H4zm0 2h12v8H4V7zm5 3a1 1 0 011 1v1a1 1 0 102 0v-1a1 1 0 011-1h1a1 1 0 010 2h-1v1a1 1 0 10-2 0v-1a1 1 0 01-1-1v-1a1 1 0 011-1z" clipRule="evenodd"></path></svg>
+                      Choose File
                     </label>
                     {assignedFile && (
                       <div className="flex items-center text-slate-700">
@@ -1114,11 +1119,12 @@ const TaskManagement = () => {
                           onClick={() => {
                             setAssignedFile(null);
                             setNewTask(prev => ({ ...prev, assignedFile: null }));
-                            document.getElementById('assignedFileInput').value = ''; // Clear file input value
+                            document.getElementById('assignedFileInput').value = '';
                           }}
                           className="ml-2 text-red-500 hover:text-red-700"
                         >
-                          <FaTimesCircle />
+                          {/* FaTimesCircle Icon */}
+                          <svg fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"></path></svg>
                         </button>
                       </div>
                     )}
@@ -1135,7 +1141,7 @@ const TaskManagement = () => {
                   className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
                   onClick={() => {
                     setIsAddOpen(false);
-                    setAssignedFile(null); // Clear file input on modal close
+                    setAssignedFile(null);
                     setNewTask({
                       title: "",
                       description: "",
@@ -1145,6 +1151,7 @@ const TaskManagement = () => {
                       status: "pending",
                       assignedFile: null,
                     });
+                    setEmployeeSearchQuery("");
                   }}
                 >
                   Cancel
@@ -1152,7 +1159,7 @@ const TaskManagement = () => {
                 <button
                   className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleAddTask}
-                  disabled={uploadingFile} // Disable button while uploading
+                  disabled={uploadingFile}
                 >
                   {uploadingFile ? 'Adding & Uploading...' : 'Add Task'}
                 </button>
@@ -1162,7 +1169,7 @@ const TaskManagement = () => {
         )}
 
         {/* Edit Task Modal */}
-        {isEditOpen && taskToEdit && (
+        {isEditFromModal && taskToEdit && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-slate-200">
@@ -1215,21 +1222,43 @@ const TaskManagement = () => {
                   </select>
                 </div>
                 
-                <div>
+                {/* Unified Assign To Search and Select for Edit Modal */}
+                <div className="relative" ref={assignToRef}>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
-                  <select
-                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                    value={typeof taskToEdit.assignedTo === 'object' ? taskToEdit.assignedTo._id : taskToEdit.assignedTo}
-                    onChange={(e) => setTaskToEdit({ ...taskToEdit, assignedTo: e.target.value })}
-                  >
-                    <option value="">Select Employee</option>
-                    {/* Use assignableEmployees here */}
-                    {assignableEmployees.map(employee => (
-                      <option key={employee._id || employee.id} value={employee._id || employee.id}>
-                        {employee.name}
-                      </option>
-                    ))}
-                  </select>
+                  <input
+                    type="text"
+                    placeholder="Search or select employee"
+                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                    value={employeeSearchQuery}
+                    onChange={(e) => {
+                      setEmployeeSearchQuery(e.target.value);
+                      setShowEmployeeDropdown(true);
+                      setTaskToEdit(prev => ({ ...prev, assignedTo: "" })); // Clear selection if typing
+                    }}
+                    onFocus={() => setShowEmployeeDropdown(true)}
+                  />
+                  {showEmployeeDropdown && (
+                    <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-xl mt-1 max-h-60 overflow-y-auto shadow-lg">
+                      {assignableEmployees.length > 0 ? (
+                        assignableEmployees.map(employee => (
+                          <li
+                            key={employee._id || employee.id}
+                            className="p-3 hover:bg-slate-100 cursor-pointer text-slate-800"
+                            onClick={() => {
+                              const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
+                              setEmployeeSearchQuery(displayName);
+                              setTaskToEdit(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                              setShowEmployeeDropdown(false);
+                            }}
+                          >
+                            {employee.name} {employee.username && `(${employee.username})`}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="p-3 text-slate-500">No employees found.</li>
+                      )}
+                    </ul>
+                  )}
                 </div>
                 
                 <div>
@@ -1248,7 +1277,8 @@ const TaskManagement = () => {
                 {/* Display current Assigned File */}
                 {taskToEdit.assignedFile && (
                   <div className="flex items-center mt-2">
-                    <FaPaperclip className="mr-2 text-blue-500" />
+                    {/* FaPaperclip Icon */}
+                    <svg className="mr-2 text-blue-500" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1a1 1 0 100 2h1a1 1 0 01-1.707.707l-7-7a1 1 0 010-1.414z" clipRule="evenodd"></path><path fillRule="evenodd" d="M10 12a2 2 0 10-4 0v3a2 2 0 104 0v-3z" clipRule="evenodd"></path></svg>
                     <span className="text-sm text-slate-700 mr-2">Current Assigned File:</span>
                     <a 
                       href={taskToEdit.assignedFile} 
@@ -1263,7 +1293,8 @@ const TaskManagement = () => {
                 {/* Display current Completed File */}
                 {taskToEdit.completedFile && (
                   <div className="flex items-center mt-2">
-                    <FaCheck className="mr-2 text-emerald-500" />
+                    {/* FaCheck Icon */}
+                    <svg className="mr-2 text-emerald-500" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
                     <span className="text-sm text-slate-700 mr-2">Current Completed File:</span>
                     <a 
                       href={taskToEdit.completedFile} 
@@ -1280,7 +1311,10 @@ const TaskManagement = () => {
               <div className="p-6 bg-slate-50 rounded-b-2xl flex gap-3">
                 <button
                   className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
-                  onClick={() => setIsEditOpen(false)}
+                  onClick={() => {
+                    setIsEditFromModal(false);
+                    setEmployeeSearchQuery("");
+                  }}
                 >
                   Cancel
                 </button>
@@ -1301,7 +1335,8 @@ const TaskManagement = () => {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
               <div className="p-6 text-center">
                 <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <FaTrash className="w-8 h-8 text-red-600" />
+                  {/* FaTrash Icon */}
+                  <svg className="w-8 h-8 text-red-600" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm3 3a1 1 0 011 1v3a1 1 0 11-2 0v-3a1 1 0 011-1z" clipRule="evenodd"></path></svg>
                 </div>
                 <h2 className="text-xl font-bold text-slate-800 mb-2">Delete Task</h2>
                 <p className="text-slate-600 mb-6">Are you sure you want to delete this task? This action cannot be undone.</p>
