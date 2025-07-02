@@ -29,6 +29,9 @@ const EmployeeDashboard = () => {
   const [locationError, setLocationError] = useState(null);
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [currentAttendanceRecordId, setCurrentAttendanceRecordId] = useState(null);
+  // New state to track if the user has clocked out today
+  const [hasClockedOutToday, setHasClockedOutToday] = useState(false);
+
 
   // Event states
   const [events, setEvents] = useState([]);
@@ -168,6 +171,7 @@ const EmployeeDashboard = () => {
     setAttendanceHistory([]);
     setIsClockedIn(false);
     setCurrentAttendanceRecordId(null);
+    setHasClockedOutToday(false); // Reset this on logout
     navigate("/login");
   };
 
@@ -304,6 +308,16 @@ const EmployeeDashboard = () => {
   // Clock-in function
   const handleClockIn = async () => {
     if (!checkAuthStatus()) return;
+    // Prevent clock-in if already clocked in or has clocked out today
+    if (isClockedIn) {
+      alert("You are already clocked in.");
+      return;
+    }
+    if (hasClockedOutToday) {
+      alert("You have already clocked out for today. You can only clock in once per day.");
+      return;
+    }
+
     try {
       const token = localStorage.getItem("token");
       if (!token) { alert("Authentication token not found. Please log in again."); navigate('/login'); return; }
@@ -368,6 +382,7 @@ const EmployeeDashboard = () => {
         const updatedRecord = response.data.data;
         setIsClockedIn(false);
         setCurrentAttendanceRecordId(null);
+        setHasClockedOutToday(true); // Mark that the user has clocked out today
         alert(`Success: ${response.data.message}${updatedRecord.isOvertime ? " (Marked as Overtime)" : ""}`);
         setLocationError(null);
         await fetchAttendanceHistory(currentEmployee.id || localStorage.getItem("employeeId"));
@@ -410,21 +425,35 @@ const EmployeeDashboard = () => {
         setAttendanceHistory(fetchedRecords); setError(null);
 
         const today = new Date();
-        const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-        const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+        today.setHours(0, 0, 0, 0); // Normalize today's date to start of day
 
-        const latestClockedInRecordForToday = fetchedRecords.find(record =>
-          new Date(record.date) >= startOfToday && new Date(record.date) <= endOfToday &&
-          record.timeIn && (record.timeOut === null || record.timeOut === undefined || record.timeOut === 'N/A')
-        );
+        let clockedInForToday = false;
+        let clockedOutForToday = false;
+        let currentRecordId = null;
 
-        if (latestClockedInRecordForToday) {
-          setIsClockedIn(true);
-          setCurrentAttendanceRecordId(latestClockedInRecordForToday._id || latestClockedInRecordForToday.id);
-        } else {
-          setIsClockedIn(false);
-          setCurrentAttendanceRecordId(null);
+        // Check records for today
+        for (const record of fetchedRecords) {
+            const recordDate = new Date(record.date);
+            recordDate.setHours(0, 0, 0, 0); // Normalize record date to start of day
+
+            if (recordDate.getTime() === today.getTime()) {
+                if (record.timeIn && (!record.timeOut || record.timeOut === 'N/A')) {
+                    clockedInForToday = true;
+                    currentRecordId = record._id || record.id;
+                    break; // Found an active clock-in for today
+                } else if (record.timeIn && record.timeOut && record.timeOut !== 'N/A') {
+                    clockedOutForToday = true; // Found a clocked out record for today
+                }
+            }
         }
+        
+        setIsClockedIn(clockedInForToday);
+        setCurrentAttendanceRecordId(currentRecordId);
+        // If there's a record that's both clocked in and clocked out for today, set hasClockedOutToday to true
+        // This ensures the clock-in button is disabled if they've already completed their attendance for the day.
+        setHasClockedOutToday(clockedOutForToday && !clockedInForToday);
+
+
       } else {
         console.error('Failed to fetch attendance history:', response.data.message);
       }
@@ -1122,11 +1151,11 @@ const EmployeeDashboard = () => {
             <section className="bg-white rounded-lg shadow-md p-6 mb-6">
               <h2 className="text-3xl font-bold text-green-800 mb-6 border-b-2 border-green-200 pb-3">My Attendance</h2>
               <div className="flex justify-start mb-6 gap-4">
-                {!isClockedIn ? (
+                {!isClockedIn && !hasClockedOutToday ? ( // Disable clock-in if already clocked out today
                   <button
                     onClick={handleClockIn}
                     className="bg-green-600 text-white px-5 py-2 rounded-md hover:bg-green-700 transition-colors duration-200 text-lg font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                    disabled={loading}
+                    disabled={loading || hasClockedOutToday}
                   >
                     <LogIn size={20} className="mr-2" />
                     {loading ? 'Getting Location...' : 'Clock In'}
@@ -1135,11 +1164,14 @@ const EmployeeDashboard = () => {
                   <button
                     onClick={handleClockOut}
                     className="bg-red-600 text-white px-5 py-2 rounded-md hover:bg-red-700 transition-colors duration-200 text-lg font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                    disabled={loading}
+                    disabled={loading || !isClockedIn} // Disable clock-out if not clocked in
                   >
                     <LogOut size={20} className="mr-2" />
                     {loading ? 'Processing Clock-out...' : 'Clock Out'}
                   </button>
+                )}
+                {hasClockedOutToday && !isClockedIn && (
+                    <p className="text-red-500 font-medium self-center">You have already clocked out for today.</p>
                 )}
               </div>
 
