@@ -6,7 +6,7 @@ import { startOfDay, endOfDay, startOfMonth, endOfMonth, format, parseISO } from
 
 // Configuration for allowed workspace location
 // IMPORTANT: Replace with your actual workspace coordinates and desired radius
-const WORKSPACE_LATITUDE = 27.6692;
+const WORKSPACE_LATITUDE = 27.6693;
 const WORKSPACE_LONGITUDE = 85.2693;
 const ALLOWED_RADIUS_METERS = 500;
 

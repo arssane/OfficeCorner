@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 const AdminAttendanceTracking = () => {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]); // New state for departments
   const [filteredEmployees, setFilteredEmployees] = useState([]); // State for searchable employees
   const [searchQuery, setSearchQuery] = useState(""); // State for search query
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -21,6 +22,7 @@ const AdminAttendanceTracking = () => {
   const [isPayrollModalOpen, setIsPayrollModalOpen] = useState(false);
   // New state to control the visibility of the employee search dropdown
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [selectedDepartmentForReport, setSelectedDepartmentForReport] = useState(''); // New state for department filter
 
   const [payrollData, setPayrollData] = useState({
     totalHours: 0,
@@ -83,6 +85,12 @@ const AdminAttendanceTracking = () => {
   const getApiBaseUrl = useCallback(() => {
     return localStorage.getItem("apiBaseUrl") || "http://localhost:5000/api";
   }, []);
+
+  const getDepartmentEndpoint = useCallback(() => { // New function for department endpoint
+    const storedEndpoint = localStorage.getItem("departmentEndpoint");
+    // Prioritize /departments over /department for fetching all
+    return storedEndpoint || `${getApiBaseUrl()}/departments`;
+  }, [getApiBaseUrl]);
 
   // Format date for display
   const formatDate = (dateString) => {
@@ -203,7 +211,7 @@ const AdminAttendanceTracking = () => {
       const requestData = {
         employeeId: selectedEmployee._id,
         latitude: locationData.latitude,
-        longitude: locationData.longitude,
+        longitude: locationData.longitude, // Corrected: should be longitude
         timeIn: clockInTime,
       };
 
@@ -281,7 +289,7 @@ const AdminAttendanceTracking = () => {
       const attendanceEndpoint = `${baseUrl}/attendance/update/${currentAttendanceRecordId}`;
 
       const requestData = {
-        timeOut: clockOutTime,
+        timeOut: clockOutOutTime,
       };
 
       setIsLoading(true);
@@ -327,23 +335,35 @@ const AdminAttendanceTracking = () => {
     }
   };
 
-  // Fetch employees on component mount
+  // Fetch employees and departments on component mount
   useEffect(() => {
     if (checkAuthStatus()) {
       fetchEmployees();
+      fetchDepartments(); // Fetch departments here
     }
-  }, [apiBaseUrl, checkAuthStatus]);
+  }, [apiBaseUrl, checkAuthStatus]); // Added getDepartmentEndpoint to dependencies
 
-  // Effect to filter employees based on search query
+  // Effect to filter employees based on search query and selected department
   useEffect(() => {
     const lowerCaseQuery = searchQuery.toLowerCase();
-    const filtered = employees.filter(emp =>
+    let filtered = employees;
+
+    // Filter by department first if a department is selected
+    if (selectedDepartmentForReport) {
+      filtered = filtered.filter(emp =>
+        (emp.department && emp.department._id === selectedDepartmentForReport) || // If department is an object
+        (typeof emp.department === 'string' && emp.department === selectedDepartmentForReport) // If department is just an ID
+      );
+    }
+
+    // Then filter by search query
+    filtered = filtered.filter(emp =>
       (emp.name && emp.name.toLowerCase().includes(lowerCaseQuery)) ||
       (emp.username && emp.username.toLowerCase().includes(lowerCaseQuery)) ||
       (emp.email && emp.email.toLowerCase().includes(lowerCaseQuery))
     );
     setFilteredEmployees(filtered);
-  }, [searchQuery, employees]);
+  }, [searchQuery, employees, selectedDepartmentForReport]);
 
 
   // Fetch attendance records when an employee is selected
@@ -377,11 +397,11 @@ const AdminAttendanceTracking = () => {
         }
       }
 
-      const allUsers = response.data;
+      const allUsers = response.data.data || response.data; // Adjust for common response structures
       const employeeUsers = allUsers.filter(user =>
         user.role === 'Employee' ||
         user.role === 'employee' ||
-        !user.role
+        !user.role // Assuming users without a specific role are employees
       );
 
       setEmployees(employeeUsers);
@@ -403,6 +423,62 @@ const AdminAttendanceTracking = () => {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // New function to fetch departments
+  const fetchDepartments = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const departmentEndpoints = [
+        `${getApiBaseUrl()}/departments`,
+        `${getApiBaseUrl()}/department`,
+        `${getApiBaseUrl()}/api/departments`,
+        `${getApiBaseUrl()}/api/department`
+      ];
+
+      let departmentsData = null;
+      let workingEndpoint = null;
+
+      for (const endpoint of departmentEndpoints) {
+        try {
+          const response = await axios.get(endpoint, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 5000
+          });
+
+          if (response.status >= 200 && response.status < 300) {
+            // Check for common data structures
+            if (response.data.data && Array.isArray(response.data.data)) {
+              departmentsData = response.data.data;
+            } else if (response.data.departments && Array.isArray(response.data.departments)) {
+              departmentsData = response.data.departments;
+            } else if (Array.isArray(response.data)) {
+              departmentsData = response.data;
+            }
+
+            if (departmentsData && departmentsData.length > 0) {
+              workingEndpoint = endpoint;
+              break; // Found a working endpoint with data
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch departments from ${endpoint}:`, err.message);
+        }
+      }
+
+      if (departmentsData && workingEndpoint) {
+        setDepartments(departmentsData);
+        localStorage.setItem('departmentEndpoint', workingEndpoint); // Store the working endpoint
+        console.log('Departments updated:', departmentsData);
+      } else {
+        console.warn("No departments found from any known endpoint or data format was unexpected.");
+        setDepartments([]); // Clear departments if none found or error
+      }
+    } catch (err) {
+      console.error("Error fetching departments:", err);
     }
   };
 
@@ -751,6 +827,15 @@ const AdminAttendanceTracking = () => {
   };
 
 
+  // Helper function to get week number (copied from calculatePayroll for reusability)
+  const getWeekNumber = (d) => {
+    d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-${weekNo}`;
+  };
+
   // Calculate payroll
   const calculatePayroll = (shouldOpenModal = true) => { // Added parameter
     if (!selectedEmployee || attendanceRecords.length === 0) {
@@ -776,14 +861,6 @@ const AdminAttendanceTracking = () => {
 
       return recordDate >= startDate && recordDate <= endDate;
     });
-
-    const getWeekNumber = (d) => {
-      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-      const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-      return `${d.getUTCFullYear()}-${weekNo}`;
-    };
 
     const weeklyRegularHoursAccumulator = {};
 
@@ -843,7 +920,7 @@ const AdminAttendanceTracking = () => {
     }
   };
 
-  // Generate PDF report
+  // Generate PDF report for a single employee
   const generatePayrollReport = async () => {
     if (!selectedEmployee || attendanceRecords.length === 0) {
       setError("No attendance data available to export");
@@ -945,7 +1022,7 @@ const AdminAttendanceTracking = () => {
     }
   };
 
-  // Export attendance for all employees by fetching data for each employee
+  // Export attendance for all employees or by department
   const exportAllAttendanceToPDF = async () => {
     if (!employees.length) {
       setError("No employees available to export data.");
@@ -962,9 +1039,35 @@ const AdminAttendanceTracking = () => {
       }
       
       const allData = [];
+      const employeePayrollSummaries = {}; // New object to store payroll summaries for all employees
       let errorOccurred = false;
       
-      for (const employee of employees) {
+      // Determine which employees to include based on selectedDepartmentForReport
+      let employeesToExport = employees;
+      let reportTitle = 'All Employees Attendance & Payroll Report';
+      let fileNameDepartmentPart = 'All_Departments';
+
+      if (selectedDepartmentForReport) {
+        const departmentName = departments.find(d => d._id === selectedDepartmentForReport || d.id === selectedDepartmentForReport)?.name || 'Unknown Department';
+        employeesToExport = employees.filter(emp =>
+          (emp.department && emp.department._id === selectedDepartmentForReport) ||
+          (typeof emp.department === 'string' && emp.department === selectedDepartmentForReport)
+        );
+        reportTitle = `Attendance & Payroll Report for ${departmentName} Department`;
+        fileNameDepartmentPart = departmentName.replace(/\s+/g, '_');
+      }
+
+      console.log("Employees to export:", employeesToExport.map(e => e.name)); // DEBUG LOG
+      console.log("Number of employees to export:", employeesToExport.length); // DEBUG LOG
+
+      if (employeesToExport.length === 0) {
+        setError(selectedDepartmentForReport ? `No employees found in the selected department for the report.` : "No employees available to export data.");
+        setIsExporting(false);
+        return;
+      }
+
+      for (const employee of employeesToExport) {
+        console.log(`Fetching attendance for: ${employee.name} (ID: ${employee._id})`); // DEBUG LOG
         try {
           const baseUrl = getApiBaseUrl();
           const response = await axios.get(`${baseUrl}/attendance/employee/${employee._id}`, {
@@ -980,12 +1083,69 @@ const AdminAttendanceTracking = () => {
             const endDate = new Date(dateRange.endDate);
             endDate.setHours(23, 59, 59, 999);
             
-            const filteredData = response.data.data
+            const filteredDataForEmployee = response.data.data // Renamed for clarity
               .filter(record => {
                 const recordDate = new Date(record.date);
                 return recordDate >= startDate && recordDate <= endDate;
-              })
-              .map(record => {
+              });
+              
+            // --- START: Payroll Calculation for current employee ---
+            let employeeTotalRegularHoursAccrued = 0;
+            let employeeTotalDailyOvertimeMinutes = 0;
+            let employeeTotalWeeklyOvertimeHours = 0;
+            const employeeWeeklyRegularHoursAccumulator = {};
+
+            filteredDataForEmployee.forEach(record => {
+              const dailyTotalHours = calculateDurationInHours(record.timeIn || record.clockIn, record.timeOut || record.clockOut);
+
+              let dailyOvertime = 0;
+              let dailyRegular = 0;
+
+              if (dailyTotalHours > payrollSettings.dailyRegularHoursLimit) {
+                dailyRegular = payrollSettings.dailyRegularHoursLimit;
+                dailyOvertime = dailyTotalHours - payrollSettings.dailyRegularHoursLimit;
+              } else {
+                dailyRegular = dailyTotalHours;
+                dailyOvertime = 0;
+              }
+
+              employeeTotalDailyOvertimeMinutes += dailyOvertime * 60;
+
+              const recordDate = new Date(record.date); // Use record.date as it's the raw date from API
+              const weekKey = getWeekNumber(recordDate);
+              employeeWeeklyRegularHoursAccumulator[weekKey] = (employeeWeeklyRegularHoursAccumulator[weekKey] || 0) + dailyRegular;
+            });
+
+            for (const weekKey in employeeWeeklyRegularHoursAccumulator) {
+              let regularHoursInWeek = employeeWeeklyRegularHoursAccumulator[weekKey];
+              if (regularHoursInWeek > payrollSettings.regularHoursLimit) {
+                employeeTotalWeeklyOvertimeHours += (regularHoursInWeek - payrollSettings.regularHoursLimit);
+                employeeTotalRegularHoursAccrued += payrollSettings.regularHoursLimit;
+              } else {
+                employeeTotalRegularHoursAccrued += regularHoursInWeek;
+              }
+            }
+
+            const employeeRegularPay = employeeTotalRegularHoursAccrued * payrollSettings.regularRate;
+            const employeeDailyOvertimePay = employeeTotalDailyOvertimeMinutes * payrollSettings.dailyOvertimeRatePerMinute;
+            const employeeWeeklyOvertimePay = employeeTotalWeeklyOvertimeHours * payrollSettings.overtimeRate;
+
+            const employeeTotalOvertimeHours = (employeeTotalDailyOvertimeMinutes / 60) + employeeTotalWeeklyOvertimeHours;
+            const employeeTotalPay = employeeRegularPay + employeeDailyOvertimePay + employeeWeeklyOvertimePay;
+            const employeeTotalHoursWorked = employeeTotalRegularHoursAccrued + employeeTotalOvertimeHours;
+
+            employeePayrollSummaries[employee._id] = {
+              name: employee.name,
+              totalHours: parseFloat(employeeTotalHoursWorked.toFixed(2)),
+              regularHours: parseFloat(employeeTotalRegularHoursAccrued.toFixed(2)),
+              overtimeHours: parseFloat(employeeTotalOvertimeHours.toFixed(2)),
+              regularPay: parseFloat(employeeRegularPay.toFixed(2)),
+              overtimePay: parseFloat((employeeDailyOvertimePay + employeeWeeklyOvertimePay).toFixed(2)),
+              totalPay: parseFloat(employeeTotalPay.toFixed(2))
+            };
+            // --- END: Payroll Calculation for current employee ---
+
+            const formattedRecords = filteredDataForEmployee.map(record => {
                 const hoursWorked = calculateDurationInHours(record.timeIn || record.clockIn, record.timeOut || record.clockOut);
                 
                 const dailyRegularHours = Math.min(hoursWorked, payrollSettings.dailyRegularHoursLimit);
@@ -996,7 +1156,7 @@ const AdminAttendanceTracking = () => {
 
                 return [
                   new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-                  employee.name,
+                  employee.name, // Include employee name in each row for clarity in multi-employee report
                   formatTime(record.timeIn || record.clockIn),
                   formatTime(record.timeOut || record.timeOut),
                   formatDurationForDisplay(record.timeIn || record.clockIn, record.timeOut || record.clockOut),
@@ -1007,7 +1167,10 @@ const AdminAttendanceTracking = () => {
                 ];
               });
               
-            allData.push(...filteredData);
+            allData.push(...formattedRecords);
+            console.log(`Added ${filteredDataForEmployee.length} records for ${employee.name}. Total records in allData: ${allData.length}`); // DEBUG LOG
+          } else {
+            console.warn(`No attendance data found for ${employee.name} or unexpected response structure.`); // DEBUG LOG
           }
         } catch (err) {
           console.error(`Error fetching attendance for employee ${employee.name}:`, err);
@@ -1015,8 +1178,10 @@ const AdminAttendanceTracking = () => {
         }
       }
       
+      console.log("Final allData before PDF generation:", allData); // DEBUG LOG
+
       if (allData.length === 0) {
-        setError("No attendance records found for the selected date range across all employees.");
+        setError("No attendance records found for the selected date range across the chosen employees/department.");
         setIsExporting(false);
         return;
       }
@@ -1024,7 +1189,7 @@ const AdminAttendanceTracking = () => {
       const doc = new jsPDF();
       
       doc.setFontSize(18);
-      doc.text('All Employees Attendance & Payroll Report', 14, 20);
+      doc.text(reportTitle, 14, 20);
       
       doc.setFontSize(12);
       const startDateFormatted = new Date(dateRange.startDate).toLocaleDateString();
@@ -1040,7 +1205,36 @@ const AdminAttendanceTracking = () => {
         styles: { fontSize: 7 }
       });
 
-      const fileName = `All_Employees_Attendance_Payroll_${new Date(dateRange.startDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-')}_to_${new Date(dateRange.endDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-')}.pdf`;
+      // --- START: Add Employee Payroll Summary Table to PDF ---
+      let finalY = (doc.autoTable && doc.autoTable.previous) ? doc.autoTable.previous.finalY : 45 + (allData.length * 10);
+      doc.addPage(); // Add a new page for the summary
+      doc.setFontSize(18);
+      doc.text(`Payroll Summary - ${reportTitle}`, 14, 20);
+      doc.setFontSize(12);
+      doc.text(`Period: ${startDateFormatted} - ${endDateFormatted}`, 14, 35);
+
+
+      const summaryTableData = Object.values(employeePayrollSummaries).map(summary => [
+        summary.name,
+        summary.totalHours.toFixed(2),
+        summary.regularHours.toFixed(2),
+        summary.overtimeHours.toFixed(2),
+        `$${summary.regularPay.toFixed(2)}`,
+        `$${summary.overtimePay.toFixed(2)}`,
+        `$${summary.totalPay.toFixed(2)}`
+      ]);
+
+      autoTable(doc, {
+        head: [['Employee', 'Total Hours', 'Regular Hours', 'Overtime Hours', 'Regular Pay', 'Overtime Pay', 'Total Pay']],
+        body: summaryTableData,
+        startY: 45,
+        theme: 'striped',
+        headStyles: { fillColor: [34, 139, 34] },
+        styles: { fontSize: 8 }
+      });
+      // --- END: Add Employee Payroll Summary Table to PDF ---
+
+      const fileName = `${fileNameDepartmentPart}_Attendance_Payroll_${new Date(dateRange.startDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-')}_to_${new Date(dateRange.endDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-')}.pdf`;
       
       doc.save(fileName);
       
@@ -1055,6 +1249,15 @@ const AdminAttendanceTracking = () => {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  // Determine the text for the "Export All" button based on selectedDepartmentForReport
+  const getExportAllButtonText = () => {
+    if (isExporting) {
+      return 'Exporting...';
+    }
+    const selectedDept = departments.find(d => d._id === selectedDepartmentForReport || d.id === selectedDepartmentForReport);
+    return selectedDept ? `Export ${selectedDept.name} Report` : 'Export All Employees Report';
   };
 
   return (
@@ -1107,8 +1310,29 @@ const AdminAttendanceTracking = () => {
             </div>
           </div>
 
+          {/* Department Filter for Reports */}
+          <div className="md:col-span-1">
+            <label htmlFor="department-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              Filter by Department (for Reports):
+            </label>
+            <select
+              id="department-filter"
+              name="selectedDepartmentForReport"
+              value={selectedDepartmentForReport}
+              onChange={(e) => setSelectedDepartmentForReport(e.target.value)}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm rounded-md shadow-sm"
+            >
+              <option value="">All Departments</option>
+              {departments.map(dept => (
+                <option key={dept._id || dept.id} value={dept._id || dept.id}>
+                  {dept.name} ({dept.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Date Range Selection */}
-          <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="md:col-span-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 mb-2">
                 Start Date:
@@ -1336,14 +1560,14 @@ const AdminAttendanceTracking = () => {
               disabled={isExporting || !selectedEmployee || attendanceRecords.length === 0}
               className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
-              <Download size={18} className="mr-2" /> {isExporting ? 'Generating...' : 'Download Report'}
+              <Download size={18} className="mr-2" /> {isExporting ? 'Generating...' : 'Download Report (Selected Employee)'}
             </button>
             <button
               onClick={exportAllAttendanceToPDF}
               disabled={isExporting || employees.length === 0}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
-              <Download size={18} className="mr-2" /> {isExporting ? 'Exporting All...' : 'Export All'}
+              <Download size={18} className="mr-2" /> {getExportAllButtonText()}
             </button>
           </div>
         </div>

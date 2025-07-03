@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react"; // Imported useRef for click outside detection
 // Removed react-icons/fa import as it was causing a compilation error.
 // Replacing with inline SVGs for the necessary icons.
+import axios from "axios"; // Using axios for consistency and better error handling
 
 const TaskManagement = () => {
   // Initialize state from localStorage if available
@@ -18,6 +19,7 @@ const TaskManagement = () => {
     const savedEmployees = localStorage.getItem('employees');
     return savedEmployees ? JSON.parse(savedEmployees) : [];
   });
+  const [departments, setDepartments] = useState([]); // New state for departments
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [apiBaseUrls] = useState([
@@ -40,8 +42,8 @@ const TaskManagement = () => {
     description: "",
     deadline: "",
     priority: "medium",
-    assignedTo: "",
-    status: "pending",
+    assignedTo: "", // Can be employee ID or department ID
+    status: "pending", // Default status to pending
     assignedFile: null,
   });
 
@@ -50,9 +52,12 @@ const TaskManagement = () => {
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState("");
   const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false); // New state to control dropdown visibility
 
+  const [assignToType, setAssignToType] = useState('employee'); // 'employee' or 'department'
+  const [selectedDepartmentForTask, setSelectedDepartmentForTask] = useState(''); // Stores selected department ID for task assignment
+
   const assignToRef = useRef(null); // Ref for click outside logic
 
-  // Effect to handle clicks outside the employee dropdown
+  // Effect to handle clicks outside the employee/department dropdown
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (assignToRef.current && !assignToRef.current.contains(event.target)) {
@@ -89,14 +94,13 @@ const TaskManagement = () => {
       if (token && isAuthenticated) {
         console.log('Periodic refresh triggered');
         fetchTasks(token);
-        if (employees.length === 0) {
-          fetchEmployees(token);
-        }
+        fetchEmployees(token); // Also refresh employees
+        fetchDepartments(token); // Also refresh departments
       }
     }, 30000);
     
     return () => clearInterval(refreshInterval);
-  }, [isAuthenticated, employees.length]);
+  }, [isAuthenticated, employees.length, departments.length]); // Add departments.length to dependencies
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -184,6 +188,13 @@ const TaskManagement = () => {
           `${baseUrl}/api/employees`,
           `${baseUrl}/api/employee`
         ];
+
+        const departmentEndpoints = [ // New endpoints for departments
+          `${baseUrl}/departments`,
+          `${baseUrl}/department`, // Keep this for backward compatibility if it returns all
+          `${baseUrl}/api/departments`,
+          `${baseUrl}/api/department` // Keep this for backward compatibility if it returns all
+        ];
         
         let tasksData = null;
         let workingTaskEndpoint = null;
@@ -249,6 +260,44 @@ const TaskManagement = () => {
               console.log(`Endpoint ${endpoint} failed:`, err.message);
             }
           }
+
+          let departmentsData = null;
+          let workingDepartmentEndpoint = null;
+
+          for (const endpoint of departmentEndpoints) {
+            try {
+              console.log(`Trying department endpoint: ${endpoint}`);
+              const response = await fetch(endpoint, {
+                headers: { 
+                  Authorization: `Bearer ${token}`,
+                  'Accept': 'application/json'
+                },
+                signal: AbortSignal.timeout(5000)
+              });
+              
+              if (response.ok) {
+                const rawData = await response.json();
+                console.log(`Raw department data from ${endpoint}:`, rawData);
+                
+                // Prioritize 'data' or 'departments' array, then fallback to direct array
+                if (rawData.data && Array.isArray(rawData.data)) {
+                  departmentsData = rawData.data;
+                } else if (rawData.departments && Array.isArray(rawData.departments)) {
+                  departmentsData = rawData.departments;
+                } else if (Array.isArray(rawData)) {
+                  departmentsData = rawData;
+                }
+                
+                if (departmentsData && departmentsData.length > 0) {
+                  workingDepartmentEndpoint = endpoint;
+                  console.log(`Found working department endpoint: ${endpoint}`, departmentsData);
+                  break;
+                }
+              }
+            } catch (err) {
+              console.log(`Endpoint ${endpoint} failed:`, err.message);
+            }
+          }
           
           if (workingTaskEndpoint) {
             localStorage.setItem("taskEndpoint", workingTaskEndpoint);
@@ -267,12 +316,26 @@ const TaskManagement = () => {
               name: emp.name || emp.username || emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unknown',
               username: emp.username,
               email: emp.email,
-              role: emp.role
+              role: emp.role,
+              department: emp.department // Keep department ID or object
             }));
             
             setEmployees(processedEmployees);
             localStorage.setItem('employees', JSON.stringify(processedEmployees));
             console.log('Processed employees:', processedEmployees);
+          }
+
+          if (workingDepartmentEndpoint && departmentsData) {
+            localStorage.setItem("departmentEndpoint", workingDepartmentEndpoint);
+            const processedDepartments = departmentsData.map(dept => ({
+              _id: dept._id || dept.id,
+              id: dept.id || dept._id,
+              name: dept.name,
+              code: dept.code,
+            }));
+            setDepartments(processedDepartments);
+            localStorage.setItem('departments', JSON.stringify(processedDepartments));
+            console.log('Processed departments:', processedDepartments);
           }
           
           setError(null);
@@ -320,6 +383,7 @@ const TaskManagement = () => {
   const fetchData = (token) => {
     fetchTasks(token);
     fetchEmployees(token);
+    fetchDepartments(token); // Fetch departments here
   };
 
   const getTaskEndpoint = () => {
@@ -332,21 +396,27 @@ const TaskManagement = () => {
     return storedEndpoint || `${currentApiBaseUrl}/users`;
   };
 
+  const getDepartmentEndpoint = () => { // New function for department endpoint
+    const storedEndpoint = localStorage.getItem("departmentEndpoint");
+    // Prioritize /departments over /department for fetching all
+    return storedEndpoint || `${currentApiBaseUrl}/departments`;
+  };
+
   const fetchTasks = async (token) => {
     try {
       setLoading(true);
       
-      const response = await fetch(getTaskEndpoint(), {
+      const response = await axios.get(getTaskEndpoint(), { // Using axios
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        signal: AbortSignal.timeout(10000)
+        timeout: 10000
       });
       
-      if (response.ok) {
-        const tasksData = await response.json();
+      if (response.status >= 200 && response.status < 300) { // Check for 2xx status
+        const tasksData = response.data;
         console.log('Raw tasks response:', tasksData);
         
         let taskArray = [];
@@ -404,17 +474,17 @@ const TaskManagement = () => {
 
   const fetchEmployees = async (token) => {
     try {
-      const response = await fetch(getEmployeeEndpoint(), {
+      const response = await axios.get(getEmployeeEndpoint(), { // Using axios
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        signal: AbortSignal.timeout(10000)
+        timeout: 10000
       });
       
-      if (response.ok) {
-        const employeesData = await response.json();
+      if (response.status >= 200 && response.status < 300) { // Check for 2xx status
+        const employeesData = response.data;
         let employeeArray = [];
         
         if (Array.isArray(employeesData)) {
@@ -428,10 +498,11 @@ const TaskManagement = () => {
         employeeArray = employeeArray.map(emp => ({
           _id: emp._id || emp.id,
           id: emp.id || emp._id,
-          name: emp.name || emp.username || emp.fullName || `${emp.firstName} ${emp.lastName}`.trim(),
+          name: emp.name || emp.username || emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
           username: emp.username,
           email: emp.email,
-          role: emp.role 
+          role: emp.role,
+          department: emp.department // Ensure department ID is kept
         }));
         
         if (employeeArray.length > 0) {
@@ -442,6 +513,73 @@ const TaskManagement = () => {
       }
     } catch (err) {
       console.log("Error fetching employees:", err);
+    }
+  };
+
+  // New function to fetch departments
+  const fetchDepartments = async (token) => {
+    try {
+      const currentToken = token || localStorage.getItem("token");
+      if (!currentToken) {
+        console.warn("No token found for fetching departments.");
+        return;
+      }
+
+      const departmentEndpoints = [
+        `${currentApiBaseUrl}/departments`,
+        `${currentApiBaseUrl}/department`,
+        `${currentApiBaseUrl}/api/departments`,
+        `${currentApiBaseUrl}/api/department`
+      ];
+
+      let departmentsData = null;
+      let workingEndpoint = null;
+
+      for (const endpoint of departmentEndpoints) {
+        try {
+          const response = await axios.get(endpoint, {
+            headers: { Authorization: `Bearer ${currentToken}` },
+            timeout: 5000
+          });
+
+          if (response.status >= 200 && response.status < 300) {
+            // Check for common data structures
+            if (response.data.data && Array.isArray(response.data.data)) {
+              departmentsData = response.data.data;
+            } else if (response.data.departments && Array.isArray(response.data.departments)) {
+              departmentsData = response.data.departments;
+            } else if (Array.isArray(response.data)) {
+              departmentsData = response.data;
+            }
+
+            if (departmentsData && departmentsData.length > 0) {
+              workingEndpoint = endpoint;
+              break; // Found a working endpoint with data
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch departments from ${endpoint}:`, err.message);
+        }
+      }
+
+      if (departmentsData && workingEndpoint) {
+        const processedDepartments = departmentsData.map(dept => ({
+          _id: dept._id || dept.id,
+          id: dept.id || dept._id,
+          name: dept.name,
+          code: dept.code,
+        }));
+        setDepartments(processedDepartments);
+        localStorage.setItem('departments', JSON.stringify(processedDepartments));
+        localStorage.setItem('departmentEndpoint', workingEndpoint); // Store the working endpoint
+        console.log('Departments updated:', processedDepartments);
+      } else {
+        console.warn("No departments found from any known endpoint or data format was unexpected.");
+        setDepartments([]); // Clear departments if none found or error
+      }
+    } catch (err) {
+      console.error("Error fetching departments:", err);
+      // No specific error message for the user, as this is a background fetch
     }
   };
 
@@ -469,26 +607,23 @@ const TaskManagement = () => {
 
     const uploadUrl = `${currentApiBaseUrl}/files/upload`;
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
+      const formData = new FormData();
+      formData.append('file', file); // Append the file directly
+
+      const response = await axios.post(uploadUrl, formData, { // Using axios
         headers: {
           Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data' // Important for FormData
         },
-        body: formData,
-        signal: AbortSignal.timeout(60000)
+        timeout: 60000
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (response.status >= 200 && response.status < 300) { // Check for 2xx status
         setError(null);
-        return data.url;
+        return response.data.url;
       } else {
-        const errorData = await response.json();
-        const errorMessage = errorData.message || response.statusText || 'Unknown error during upload';
+        const errorMessage = response.data?.message || response.statusText || 'Unknown error during upload';
         setError(`File upload failed: ${errorMessage}. Status: ${response.status}`);
         return null;
       }
@@ -521,29 +656,85 @@ const TaskManagement = () => {
         }
       }
 
-      const taskDataToSend = {
-        ...newTask,
-        assignedFile: fileUrl,
-      };
+      let tasksToCreate = [];
 
-      const response = await fetch(getTaskEndpoint(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(taskDataToSend),
-        signal: AbortSignal.timeout(10000)
-      });
-      
-      if (response && response.ok) {
-        const data = await response.json();
-        setTasks([...tasks, data]);
+      if (assignToType === 'employee') {
+        if (!newTask.assignedTo) {
+          setError("Please select an employee to assign the task to.");
+          setLoading(false);
+          return;
+        }
+        tasksToCreate.push({
+          ...newTask,
+          assignedTo: newTask.assignedTo, // Single employee ID
+          assignedFile: fileUrl,
+          status: "pending", // Force status to pending when adding
+          createdAt: new Date().toISOString(), // Add creation timestamp
+        });
+      } else if (assignToType === 'department') {
+        if (!selectedDepartmentForTask) {
+          setError("Please select a department to assign the task to.");
+          setLoading(false);
+          return;
+        }
+        const employeesInDepartment = employees.filter(emp => 
+          (emp.department && emp.department._id === selectedDepartmentForTask) || // If department is an object
+          (typeof emp.department === 'string' && emp.department === selectedDepartmentForTask) // If department is just an ID
+        );
+
+        if (employeesInDepartment.length === 0) {
+          setError("No employees found in the selected department to assign the task to.");
+          setLoading(false);
+          return;
+        }
+
+        employeesInDepartment.forEach(emp => {
+          tasksToCreate.push({
+            ...newTask,
+            assignedTo: emp._id || emp.id, // Assign to each employee's ID
+            assignedFile: fileUrl,
+            status: "pending", // Force status to pending when adding
+            createdAt: new Date().toISOString(), // Add creation timestamp
+            // Optionally, add a department identifier to the task if your backend supports it
+            // departmentAssigned: selectedDepartmentForTask, 
+          });
+        });
+      }
+
+      const createdTasks = [];
+      let allTasksSuccess = true;
+
+      for (const taskData of tasksToCreate) {
+        try {
+          const response = await axios.post(getTaskEndpoint(), taskData, { // Using axios
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          });
+          
+          if (response.status >= 200 && response.status < 300) {
+            createdTasks.push(response.data);
+          } else {
+            console.error(`Failed to create task for one employee: ${response.data?.message || response.statusText}`);
+            allTasksSuccess = false;
+          }
+        } catch (err) {
+          console.error(`Error creating task for one employee: ${err.message}`);
+          allTasksSuccess = false;
+        }
+      }
+
+      if (createdTasks.length > 0) {
+        setTasks(prevTasks => [...prevTasks, ...createdTasks]);
         setError(null);
-      } else {
-        const errorData = await response.json();
-        setError(`Failed to create task: ${errorData.message || response.statusText}. Status: ${response.status}`);
+        if (!allTasksSuccess) {
+          setError("Some tasks were created, but there were errors with others. Check console for details.");
+        }
+      } else if (!allTasksSuccess) {
+        setError("Failed to create any tasks. Please check the form and server logs.");
       }
       
       setIsAddOpen(false);
@@ -553,11 +744,13 @@ const TaskManagement = () => {
         deadline: "",
         priority: "medium",
         assignedTo: "",
-        status: "pending",
+        status: "pending", // Reset to pending
         assignedFile: null,
       });
       setAssignedFile(null);
       setEmployeeSearchQuery(""); // Clear search query on modal close
+      setSelectedDepartmentForTask(""); // Clear department selection
+      setAssignToType('employee'); // Reset to employee assignment
     } catch (err) {
       setError(`Failed to create task: ${err.message}. Please check server logs for details.`);
     } finally {
@@ -566,6 +759,8 @@ const TaskManagement = () => {
   };
 
   const handleEditTask = async () => {
+    if (!currentEditingEmployee) return;
+
     try {
       const token = localStorage.getItem("token");
       const taskId = taskToEdit.id || taskToEdit._id;
@@ -592,22 +787,20 @@ const TaskManagement = () => {
         (task.id === taskId || task._id === taskId) ? taskToEdit : task
       ));
       
-      const response = await fetch(updateEndpoint, {
-        method: 'PUT',
+      const response = await axios.put(updateEndpoint, taskToEdit, { // Using axios
         headers: {
           Authorization: `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(taskToEdit),
-        signal: AbortSignal.timeout(10000)
+        timeout: 10000
       }).catch(err => {
         console.log("API update failed, but task was updated locally:", err);
         return null;
       });
       
-      if (response && response.ok) {
-        const data = await response.json();
+      if (response && response.status >= 200 && response.status < 300) { // Check for 2xx status
+        const data = response.data;
         setTasks(tasks.map(task => 
           (task.id === taskId || task._id === taskId) ? data : task
         ));
@@ -635,21 +828,20 @@ const TaskManagement = () => {
           
           console.log("DELETE URL:", deleteUrl);
           
-          const response = await fetch(deleteUrl, {
-            method: 'DELETE',
+          const response = await axios.delete(deleteUrl, { // Using axios
             headers: {
               Authorization: `Bearer ${token}`,
               'Accept': 'application/json'
             },
-            signal: AbortSignal.timeout(10000)
+            timeout: 10000
           });
           
-          if (response.status === 204) {
+          if (response.status === 204 || response.status === 200) { // 204 No Content, or 200 OK
             setTasks(tasks.filter(task => 
               task.id !== taskToDelete && task._id !== taskToDelete
             ));
           } else {
-            const errorData = await response.json();
+            const errorData = response.data;
             console.error("Server deletion failed:", errorData);
             setError(`Failed to delete task on server: ${errorData.message || response.statusText}`);
             setIsDeleteOpen(false);
@@ -692,24 +884,29 @@ const TaskManagement = () => {
       return "Unassigned";
     }
     
-    if (typeof assignedTo === 'object' && assignedTo !== null) {
-      if (assignedTo.username) return `${assignedTo.name} (${assignedTo.username})`;
-      if (assignedTo.name) return assignedTo.name;
-    }
-    
+    // First, check if it's a single employee ID
     if (typeof assignedTo === 'string') {
       const employee = employees.find(emp => (emp._id === assignedTo || emp.id === assignedTo));
-      
       if (employee) {
         return employee.username ? `${employee.name} (${employee.username})` : employee.name;
-      } else {
-        return `Unknown Employee (${assignedTo})`;
       }
+      // If it's a string but not an employee, check if it's a department ID
+      const department = departments.find(dept => (dept._id === assignedTo || dept.id === assignedTo));
+      if (department) {
+        return `Multiple Employees (Department: ${department.name})`; // Display department name if it's a department ID
+      }
+    } else if (typeof assignedTo === 'object' && assignedTo !== null) {
+      // If assignedTo is already an employee object
+      if (assignedTo.username) return `${assignedTo.name} (${assignedTo.username})`;
+      if (assignedTo.name) return assignedTo.name;
+      // If it's a department object
+      if (assignedTo.name && assignedTo.code) return `Multiple Employees (Department: ${assignedTo.name})`;
     }
     
     return "Unassigned";
   };
 
+  // Filter employees for dropdown based on search query
   const assignableEmployees = employees.filter(employee => 
     employee.role !== 'Administrator' &&
     (employee.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase()) || 
@@ -720,15 +917,23 @@ const TaskManagement = () => {
   useEffect(() => {
     if (isAddOpen) {
       setEmployeeSearchQuery(""); // Clear search on Add modal open
-      setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear assignedTo
+      setNewTask(prev => ({ ...prev, assignedTo: "", status: "pending" })); // Clear assignedTo and force status to pending
+      setSelectedDepartmentForTask(""); // Clear department selection
+      setAssignToType('employee'); // Default to employee assignment
     }
     if (isEditFromModal && taskToEdit) {
+      // When editing, we only support individual employee assignment for now.
+      // If the task was department-assigned, its assignedTo will be an employee ID.
       const assignedEmployee = employees.find(emp => (emp._id === taskToEdit.assignedTo || emp.id === taskToEdit.assignedTo));
       if (assignedEmployee) {
         setEmployeeSearchQuery(assignedEmployee.username ? `${assignedEmployee.name} (${assignedEmployee.username})` : assignedEmployee.name);
+        setNewTask(prev => ({ ...prev, assignedTo: assignedEmployee._id || assignedEmployee.id })); // Ensure newTask has the correct ID
       } else {
         setEmployeeSearchQuery("");
+        setNewTask(prev => ({ ...prev, assignedTo: "" }));
       }
+      setAssignToType('employee'); // Force employee assignment for edit modal
+      setSelectedDepartmentForTask(""); // Clear department selection
     }
   }, [isAddOpen, isEditFromModal, taskToEdit, employees]);
 
@@ -1041,55 +1246,110 @@ const TaskManagement = () => {
                   </select>
                 </div>
                 
-                {/* Unified Assign To Search and Select */}
-                <div className="relative" ref={assignToRef}>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
-                  <input
-                    type="text"
-                    placeholder="Search or select employee"
-                    className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                    value={employeeSearchQuery}
-                    onChange={(e) => {
-                      setEmployeeSearchQuery(e.target.value);
-                      setShowEmployeeDropdown(true); // Show dropdown on type
-                      setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear selection if typing
-                    }}
-                    onFocus={() => setShowEmployeeDropdown(true)} // Show dropdown on focus
-                  />
-                  {showEmployeeDropdown && (
-                    <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-xl mt-1 max-h-60 overflow-y-auto shadow-lg">
-                      {assignableEmployees.length > 0 ? (
-                        assignableEmployees.map(employee => (
-                          <li
-                            key={employee._id || employee.id}
-                            className="p-3 hover:bg-slate-100 cursor-pointer text-slate-800"
-                            onClick={() => {
-                              const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
-                              setEmployeeSearchQuery(displayName);
-                              setNewTask(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
-                              setShowEmployeeDropdown(false);
-                            }}
-                          >
-                            {employee.name} {employee.username && `(${employee.username})`}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="p-3 text-slate-500">No employees found.</li>
-                      )}
-                    </ul>
-                  )}
+                {/* Assign To Type Selection */}
+                <div className="flex items-center space-x-4 mb-4">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      className="form-radio text-blue-600"
+                      name="assignToType"
+                      value="employee"
+                      checked={assignToType === 'employee'}
+                      onChange={() => {
+                        setAssignToType('employee');
+                        setSelectedDepartmentForTask(''); // Clear department selection
+                        setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear employee selection
+                        setEmployeeSearchQuery("");
+                      }}
+                    />
+                    <span className="ml-2 text-slate-700">Assign to Employee</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      className="form-radio text-blue-600"
+                      name="assignToType"
+                      value="department"
+                      checked={assignToType === 'department'}
+                      onChange={() => {
+                        setAssignToType('department');
+                        setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear employee selection
+                        setEmployeeSearchQuery("");
+                      }}
+                    />
+                    <span className="ml-2 text-slate-700">Assign to Department</span>
+                  </label>
                 </div>
+
+                {/* Conditional Assign To Fields */}
+                {assignToType === 'employee' && (
+                  <div className="relative" ref={assignToRef}>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Assign To Employee</label>
+                    <input
+                      type="text"
+                      placeholder="Search or select employee"
+                      className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      value={employeeSearchQuery}
+                      onChange={(e) => {
+                        setEmployeeSearchQuery(e.target.value);
+                        setShowEmployeeDropdown(true); // Show dropdown on type
+                        setNewTask(prev => ({ ...prev, assignedTo: "" })); // Clear selection if typing
+                      }}
+                      onFocus={() => setShowEmployeeDropdown(true)} // Show dropdown on focus
+                    />
+                    {showEmployeeDropdown && (
+                      <ul className="absolute z-10 w-full bg-white border border-slate-300 rounded-xl mt-1 max-h-60 overflow-y-auto shadow-lg">
+                        {assignableEmployees.length > 0 ? (
+                          assignableEmployees.map(employee => (
+                            <li
+                              key={employee._id || employee.id}
+                              className="p-3 hover:bg-slate-100 cursor-pointer text-slate-800"
+                              onClick={() => {
+                                const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
+                                setEmployeeSearchQuery(displayName);
+                                setNewTask(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                                setShowEmployeeDropdown(false);
+                              }}
+                            >
+                              {employee.name} {employee.username && `(${employee.username})`}
+                            </li>
+                          ))
+                        ) : (
+                          <li className="p-3 text-slate-500">No employees found.</li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {assignToType === 'department' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Assign To Department</label>
+                    <select
+                      className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                      value={selectedDepartmentForTask}
+                      onChange={(e) => setSelectedDepartmentForTask(e.target.value)}
+                    >
+                      <option value="">Select a Department</option>
+                      {departments.map(dept => (
+                        <option key={dept._id || dept.id} value={dept._id || dept.id}>
+                          {dept.name} ({dept.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 
+                {/* Status field - only 'pending' allowed when adding a new task */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
                   <select
                     className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                    value={newTask.status}
-                    onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
+                    value="pending" // Always default to "pending" for new tasks
+                    onChange={() => {}} // Make it read-only for new tasks
+                    disabled // Disable the select box
                   >
                     <option value="pending">Pending</option>
-                    <option value="in-progress">In Progress</option>
-                    <option value="completed">Completed</option>
                   </select>
                 </div>
 
@@ -1148,10 +1408,12 @@ const TaskManagement = () => {
                       deadline: "",
                       priority: "medium",
                       assignedTo: "",
-                      status: "pending",
+                      status: "pending", // Reset to pending
                       assignedFile: null,
                     });
                     setEmployeeSearchQuery("");
+                    setSelectedDepartmentForTask("");
+                    setAssignToType('employee');
                   }}
                 >
                   Cancel
@@ -1159,7 +1421,7 @@ const TaskManagement = () => {
                 <button
                   className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleAddTask}
-                  disabled={uploadingFile}
+                  disabled={uploadingFile || (assignToType === 'employee' && !newTask.assignedTo) || (assignToType === 'department' && !selectedDepartmentForTask)}
                 >
                   {uploadingFile ? 'Adding & Uploading...' : 'Add Task'}
                 </button>
@@ -1223,8 +1485,9 @@ const TaskManagement = () => {
                 </div>
                 
                 {/* Unified Assign To Search and Select for Edit Modal */}
+                {/* For simplicity, edit modal only allows individual employee assignment */}
                 <div className="relative" ref={assignToRef}>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Assign To Employee</label>
                   <input
                     type="text"
                     placeholder="Search or select employee"
@@ -1284,7 +1547,7 @@ const TaskManagement = () => {
                       href={taskToEdit.assignedFile} 
                       target="_blank" 
                       rel="noopener noreferrer" 
-                      className="text-blue-600 hover:underline text-sm"
+                      className="text-blue-600 hover:underline"
                     >
                       View File
                     </a>
@@ -1300,7 +1563,7 @@ const TaskManagement = () => {
                       href={taskToEdit.completedFile} 
                       target="_blank" 
                       rel="noopener noreferrer" 
-                      className="text-emerald-600 hover:underline text-sm"
+                      className="text-emerald-600 hover:underline"
                     >
                       View File
                     </a>

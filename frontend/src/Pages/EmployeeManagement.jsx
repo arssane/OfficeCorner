@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaEdit, FaTrash } from "react-icons/fa"; // FaSync is not used, so removed
+import { FaEdit, FaTrash } from "react-icons/fa";
 import axios from "axios";
 
 const EmployeeManagement = () => {
@@ -43,31 +43,26 @@ const EmployeeManagement = () => {
 
   // Fetch employees and departments on component mount
   useEffect(() => {
-    fetchEmployees();
-    fetchDepartments();
+    const initData = async () => {
+      // Ensure departments are fetched first so employee department names can be resolved
+      await fetchDepartments();
+      await fetchEmployees();
+    };
+    initData();
   }, [apiBaseUrl]);
 
+  // Handle clicks outside dropdowns to close them
   useEffect(() => {
     const handleClickOutside = (event) => {
-      // Close dropdown when clicking outside
-      if (showEmployeeDropdown && !event.target.closest('.relative')) {
+      // Close employee dropdown if click is outside its container
+      const employeeDropdownContainer = document.querySelector('.employee-dropdown-container');
+      if (showEmployeeDropdown && employeeDropdownContainer && !employeeDropdownContainer.contains(event.target)) {
         setShowEmployeeDropdown(false);
       }
-    };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showEmployeeDropdown]);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      // Close dropdowns when clicking outside
-      if (showEmployeeDropdown && !event.target.closest('.employee-dropdown-container')) {
-        setShowEmployeeDropdown(false);
-      }
-      if (showManagerDropdown && !event.target.closest('.manager-dropdown-container')) {
+      // Close manager dropdown if click is outside its container
+      const managerDropdownContainer = document.querySelector('.manager-dropdown-container');
+      if (showManagerDropdown && managerDropdownContainer && !managerDropdownContainer.contains(event.target)) {
         setShowManagerDropdown(false);
       }
     };
@@ -82,7 +77,9 @@ const EmployeeManagement = () => {
     return employees.filter(emp => emp.department !== selectedDepartment._id);
   };
 
-  const fetchDepartmentEmployees = async (departmentId) => {
+  // fetchDepartmentEmployees now accepts an optional 'allEmployees' array
+  // This ensures it uses the most up-to-date employee data if provided
+  const fetchDepartmentEmployees = async (departmentId, allEmployees = employees) => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem("token");
@@ -91,8 +88,8 @@ const EmployeeManagement = () => {
         return;
       }
 
-      // Filter employees by department from the existing employees array
-      const deptEmployees = employees.filter(emp => emp.department === departmentId);
+      // Filter employees by department from the provided allEmployees array
+      const deptEmployees = allEmployees.filter(emp => emp.department === departmentId);
       setDepartmentEmployees(deptEmployees);
       setError("");
     } catch (err) {
@@ -133,9 +130,9 @@ const EmployeeManagement = () => {
         }
       );
 
-      // Refresh data
-      await fetchEmployees();
-      await fetchDepartmentEmployees(selectedDepartment._id);
+      // Refresh data: First fetch all employees, then use the returned data to update department employees
+      const updatedEmployees = await fetchEmployees();
+      await fetchDepartmentEmployees(selectedDepartment._id, updatedEmployees);
       
       // Reset form
       setSelectedEmployeeForDept("");
@@ -150,7 +147,33 @@ const EmployeeManagement = () => {
   };
 
   const handleRemoveFromDepartment = async (employeeId) => {
-    if (window.confirm("Are you sure you want to remove this employee from the department?")) {
+    // Using a custom modal/confirmation instead of window.confirm
+    const confirmRemove = await new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm transform transition-all duration-300 scale-100">
+          <h2 class="text-xl font-bold text-red-700 mb-4">Confirm Removal</h2>
+          <p class="text-gray-700 mb-6">Are you sure you want to remove this employee from the department?</p>
+          <div class="flex justify-end space-x-3">
+            <button id="cancelBtn" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Cancel</button>
+            <button id="confirmBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Remove</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      document.getElementById('cancelBtn').onclick = () => {
+        document.body.removeChild(modal);
+        resolve(false);
+      };
+      document.getElementById('confirmBtn').onclick = () => {
+        document.body.removeChild(modal);
+        resolve(true);
+      };
+    });
+
+    if (confirmRemove) {
       try {
         setIsLoading(true);
         const token = localStorage.getItem("token");
@@ -171,8 +194,9 @@ const EmployeeManagement = () => {
           }
         );
 
-        await fetchEmployees();
-        await fetchDepartmentEmployees(selectedDepartment._id);
+        // Refresh data: First fetch all employees, then use the returned data to update department employees
+        const updatedEmployees = await fetchEmployees();
+        await fetchDepartmentEmployees(selectedDepartment._id, updatedEmployees);
         setError("");
       } catch (err) {
         console.error("Error removing employee from department:", err);
@@ -184,6 +208,7 @@ const EmployeeManagement = () => {
   };
 
   // Fetch all employees with better error handling
+  // This function now returns the fetched employee data
   const fetchEmployees = async () => {
     try {
       setIsLoading(true);
@@ -192,7 +217,7 @@ const EmployeeManagement = () => {
       if (!token) {
         setError("Authentication token not found. Please log in again.");
         setIsLoading(false);
-        return;
+        return []; // Return empty array on error
       }
 
       let response;
@@ -220,9 +245,11 @@ const EmployeeManagement = () => {
 
       setEmployees(employeeUsers);
       setError("");
+      return employeeUsers; // Return the fetched data
     } catch (err) {
       console.error("Error fetching employees:", err);
       handleApiError(err, "fetching employees");
+      return []; // Return empty array on error
     } finally {
       setIsLoading(false);
     }
@@ -244,6 +271,7 @@ const EmployeeManagement = () => {
         timeout: 10000
       });
       setDepartments(response.data.data);
+      console.log("Fetched Departments:", response.data.data); // Log fetched departments
       setError("");
     } catch (err) {
       console.error("Error fetching departments:", err);
@@ -328,7 +356,33 @@ const EmployeeManagement = () => {
   };
 
   const handleDeleteEmployee = async (id) => {
-    if (window.confirm("Are you sure you want to delete this employee?")) {
+    // Using a custom modal/confirmation instead of window.confirm
+    const confirmDelete = await new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm transform transition-all duration-300 scale-100">
+          <h2 class="text-xl font-bold text-red-700 mb-4">Confirm Deletion</h2>
+          <p class="text-gray-700 mb-6">Are you sure you want to delete this employee?</p>
+          <div class="flex justify-end space-x-3">
+            <button id="cancelBtn" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Cancel</button>
+            <button id="confirmBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Delete</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      document.getElementById('cancelBtn').onclick = () => {
+        document.body.removeChild(modal);
+        resolve(false);
+      };
+      document.getElementById('confirmBtn').onclick = () => {
+        document.body.removeChild(modal);
+        resolve(true);
+      };
+    });
+
+    if (confirmDelete) {
       try {
         setIsLoading(true);
         const token = localStorage.getItem("token");
@@ -554,7 +608,33 @@ const EmployeeManagement = () => {
   };
 
   const handleDeleteDepartment = async (id) => {
-    if (window.confirm("Are you sure you want to delete this department?")) {
+    // Using a custom modal/confirmation instead of window.confirm
+    const confirmDelete = await new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm transform transition-all duration-300 scale-100">
+          <h2 class="text-xl font-bold text-red-700 mb-4">Confirm Deletion</h2>
+          <p class="text-gray-700 mb-6">Are you sure you want to delete this department?</p>
+          <div class="flex justify-end space-x-3">
+            <button id="cancelBtn" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Cancel</button>
+            <button id="confirmBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Delete</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      document.getElementById('cancelBtn').onclick = () => {
+        document.body.removeChild(modal);
+        resolve(false);
+      };
+      document.getElementById('confirmBtn').onclick = () => {
+        document.body.removeChild(modal);
+        resolve(true);
+      };
+    });
+
+    if (confirmDelete) {
       try {
         setIsLoading(true);
         const token = localStorage.getItem("token");
@@ -654,52 +734,60 @@ const EmployeeManagement = () => {
                 </thead>
                 <tbody>
                   {employees.length > 0 ? (
-                    employees.map((employee, index) => (
-                      <tr key={employee._id} className={index % 2 === 0 ? "bg-gray-50" : "bg-white"}>
-                        <td className="py-3 px-4 border-b border-gray-200">{employee.name}</td>
-                        <td className="py-3 px-4 border-b border-gray-200">{employee.username}</td>
-                        <td className="py-3 px-4 border-b border-gray-200">{employee.email}</td>
-                        <td className="py-3 px-4 border-b border-gray-200">{employee.phone}</td>
-                        <td className="py-3 px-4 border-b border-gray-200">{employee.address}</td>
-                        <td className="py-3 px-4 border-b border-gray-200">
-                          {employee.department ?
-                            (departments.find(dept => dept._id === employee.department)?.name || "N/A")
-                            : "N/A"}
-                        </td>
-                        <td className="py-3 px-4 border-b border-gray-200">{employee.role}</td>
-                        <td className="py-3 px-4 border-b border-gray-200">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            employee.status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : employee.status === 'approved'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {employee.status || 'active'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 border-b border-gray-200 flex space-x-2">
-                          <button
-                            className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
-                            onClick={() => {
-                              setCurrentEditingEmployee(employee);
-                              setNewEmployee(employee);
-                              setIsEmployeeModalOpen(true);
-                            }}
-                            title="Edit Employee"
-                          >
-                            <FaEdit size={16} />
-                          </button>
-                          <button
-                            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
-                            onClick={() => handleDeleteEmployee(employee._id)}
-                            title="Delete Employee"
-                          >
-                            <FaTrash size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    employees.map((employee, index) => {
+                      const departmentName = employee.department
+                        ? (departments.find(dept => dept._id === employee.department)?.name || "N/A - Dept Not Found")
+                        : "N/A - No Dept";
+                      
+                      console.log(`Employee: ${employee.name}, Department ID: ${employee.department}, Resolved Department Name: ${departmentName}`);
+
+                      return (
+                        <tr key={employee._id} className={index % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                          <td className="py-3 px-4 border-b border-gray-200">{employee.name}</td>
+                          <td className="py-3 px-4 border-b border-gray-200">{employee.username}</td>
+                          <td className="py-3 px-4 border-b border-gray-200">{employee.email}</td>
+                          <td className="py-3 px-4 border-b border-gray-200">{employee.phone}</td>
+                          <td className="py-3 px-4 border-b border-gray-200">{employee.address}</td>
+                          <td className="py-3 px-4 border-b border-gray-200">
+                            <span className={departmentName.includes("Not Found") || departmentName.includes("No Dept") ? "text-red-500 font-medium" : ""}>
+                              {departmentName}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 border-b border-gray-200">{employee.role}</td>
+                          <td className="py-3 px-4 border-b border-gray-200">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              employee.status === 'pending'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : employee.status === 'approved'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {employee.status || 'active'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 border-b border-gray-200 flex space-x-2">
+                            <button
+                              className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
+                              onClick={() => {
+                                setCurrentEditingEmployee(employee);
+                                setNewEmployee(employee);
+                                setIsEmployeeModalOpen(true);
+                              }}
+                              title="Edit Employee"
+                            >
+                              <FaEdit size={16} />
+                            </button>
+                            <button
+                              className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
+                              onClick={() => handleDeleteEmployee(employee._id)}
+                              title="Delete Employee"
+                            >
+                              <FaTrash size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan="9" className="py-5 text-center text-gray-500">
@@ -1147,7 +1235,7 @@ const EmployeeManagement = () => {
               <div className="bg-green-50 p-4 rounded-lg mb-4">
                 <h4 className="text-lg font-semibold mb-3">Add Existing Employee to {selectedDepartment.name}</h4>
                 <div className="space-y-4">
-                  <div className="relative">
+                  <div className="employee-dropdown-container relative"> {/* Added a class for targeting */}
                     <label className="block text-gray-700 text-sm font-semibold mb-2">
                       Search & Select Employee
                     </label>

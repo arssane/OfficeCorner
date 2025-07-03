@@ -32,6 +32,10 @@ const EmployeeDashboard = () => {
   // New state to track if the user has clocked out today
   const [hasClockedOutToday, setHasClockedOutToday] = useState(false);
 
+  // Custom Alert Modal State
+  const [showCustomAlert, setShowCustomAlert] = useState(false);
+  const [customAlertMessage, setCustomAlertMessage] = useState('');
+  const [customAlertIsError, setCustomAlertIsError] = useState(false);
 
   // Event states
   const [events, setEvents] = useState([]);
@@ -42,27 +46,21 @@ const EmployeeDashboard = () => {
   const [isEventViewModalOpen, setIsEventViewModalOpen] = useState(false); // New state for event view modal
   const [selectedEvent, setSelectedEvent] = useState(null); // New state for selected event details
 
-  // Initialize currentEmployee with better error handling
-  const [currentEmployee, setCurrentEmployee] = useState(() => {
+  // New state to store department ID -> name mapping
+  const [departmentNamesMap, setDepartmentNamesMap] = useState({});
+
+  // State to hold the resolved employee data for display
+  const [currentEmployee, setCurrentEmployee] = useState(null);
+
+  // State to hold the raw user data from localStorage/API (may contain department ID)
+  const [rawLocalStorageUser, setRawLocalStorageUser] = useState(() => {
     try {
       const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        const displayName = (parsedUser.name && parsedUser.name !== 'Employee') ? parsedUser.name : (parsedUser.username || 'Employee');
-        return {
-          id: parsedUser.id || parsedUser._id,
-          name: displayName,
-          email: parsedUser.email,
-          department: parsedUser.department || 'General',
-          position: parsedUser.position || 'Staff',
-          username: parsedUser.username,
-          status: parsedUser.status
-        };
-      }
+      return storedUser ? JSON.parse(storedUser) : null;
     } catch (e) {
       console.error("Failed to parse user from localStorage:", e);
+      return null;
     }
-    return null;
   });
 
   // Helper functions for formatting dates and times
@@ -94,7 +92,7 @@ const EmployeeDashboard = () => {
             dateObj = new Date(); // Use current date for time components
             dateObj.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
         }
-        
+
         if (isNaN(dateObj.getTime())) {
             console.warn("Invalid date/time string provided to formatTime:", timeString);
             return 'Invalid Time';
@@ -126,6 +124,26 @@ const EmployeeDashboard = () => {
   const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
 
   const getMonthName = (monthIndex) => new Date(2000, monthIndex).toLocaleString('en-US', { month: 'long' });
+
+  // Custom Alert Dialog Function
+  const showAlertDialog = (message, isError = false) => {
+    setCustomAlertMessage(message);
+    setCustomAlertIsError(isError);
+    setShowCustomAlert(true);
+    // Auto-hide after 3-5 seconds for non-error messages
+    if (!isError) {
+      setTimeout(() => {
+        setShowCustomAlert(false);
+        setCustomAlertMessage('');
+      }, 3000); // 3 seconds
+    }
+  };
+
+  const closeAlertDialog = () => {
+    setShowCustomAlert(false);
+    setCustomAlertMessage('');
+  };
+
 
   // Check authentication status
   const checkAuthStatus = () => {
@@ -167,6 +185,7 @@ const EmployeeDashboard = () => {
     localStorage.clear();
     setIsLoggedIn(false);
     setCurrentEmployee(null);
+    setRawLocalStorageUser(null); // Clear raw user data on logout
     setTasks([]);
     setAttendanceHistory([]);
     setIsClockedIn(false);
@@ -193,10 +212,34 @@ const EmployeeDashboard = () => {
     return `${baseUrl}/events`;
   };
 
+  // Function to fetch a single department's name by its ID
+  const fetchDepartmentNameById = async (departmentId, token, baseUrl) => {
+    // Check if the name is already in the map to avoid redundant API calls
+    if (departmentNamesMap[departmentId]) {
+      return departmentNamesMap[departmentId];
+    }
+    try {
+      const response = await axios.get(`${baseUrl}/department/${departmentId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000
+      });
+      if (response.data && response.data.data && response.data.data.name) {
+        const name = response.data.data.name;
+        setDepartmentNamesMap(prev => ({ ...prev, [departmentId]: name }));
+        return name;
+      }
+    } catch (err) {
+      console.error(`Error fetching department name for ID ${departmentId}:`, err);
+    }
+    return 'Unknown Department'; // Fallback if fetching fails
+  };
+
   // Enhanced profile fetching
   const fetchEmployeeProfile = async () => {
-    if (currentEmployee) return; // Prevent redundant fetches
-    if (!checkAuthStatus()) return;
+    if (!checkAuthStatus()) {
+      setLoading(false); // Ensure loading is false if auth fails
+      return;
+    }
 
     try {
       setLoading(true);
@@ -209,7 +252,7 @@ const EmployeeDashboard = () => {
         `${baseUrl}/auth/me`, `${baseUrl}/me`
       ];
 
-      let fetchedUserData = null;
+      let fetchedUserData = null; // This will hold the raw data from the API
       let successfulEndpoint = '';
 
       for (const endpoint of possibleEndpoints) {
@@ -235,20 +278,36 @@ const EmployeeDashboard = () => {
           navigate('/employee-pending'); return;
         }
 
+        // Update rawLocalStorageUser state and localStorage
+        setRawLocalStorageUser(fetchedUserData);
+        localStorage.setItem('user', JSON.stringify(fetchedUserData));
+        localStorage.setItem("profileEndpoint", successfulEndpoint);
+
         const displayedName = (fetchedUserData.name && fetchedUserData.name !== 'Employee')
           ? fetchedUserData.name : (fetchedUserData.username || 'Employee');
 
+        let departmentName = 'General';
+        if (typeof fetchedUserData.department === 'object' && fetchedUserData.department !== null) {
+            departmentName = fetchedUserData.department.name;
+        } else if (typeof fetchedUserData.department === 'string' && fetchedUserData.department) {
+            // It's an ID, so we need to fetch the name
+            departmentName = await fetchDepartmentNameById(fetchedUserData.department, token, baseUrl);
+        }
+
         const employeeData = {
-          id: fetchedUserData.id || fetchedUserData._id, name: displayedName, email: fetchedUserData.email,
-          department: fetchedUserData.department || 'General', position: fetchedUserData.position || 'Staff',
-          username: fetchedUserData.username, status: fetchedUserData.status
+          id: fetchedUserData.id || fetchedUserData._id,
+          name: displayedName,
+          email: fetchedUserData.email,
+          department: departmentName, // Use the resolved name
+          position: fetchedUserData.position || 'Staff',
+          username: fetchedUserData.username,
+          status: fetchedUserData.status
         };
-        setCurrentEmployee(employeeData);
-        localStorage.setItem('user', JSON.stringify(fetchedUserData)); // Store full user data
-        localStorage.setItem("profileEndpoint", successfulEndpoint);
+        setCurrentEmployee(employeeData); // Update the resolved employee data
         setIsLoggedIn(true);
         setLastFetchTime(new Date());
         setError(null);
+        console.log("Fetched currentEmployee from API (with resolved department):", employeeData);
       } else {
         setError("Failed to fetch profile information");
         navigate('/login');
@@ -310,20 +369,20 @@ const EmployeeDashboard = () => {
     if (!checkAuthStatus()) return;
     // Prevent clock-in if already clocked in or has clocked out today
     if (isClockedIn) {
-      alert("You are already clocked in.");
+      showAlertDialog("You are already clocked in.", true);
       return;
     }
     if (hasClockedOutToday) {
-      alert("You have already clocked out for today. You can only clock in once per day.");
+      showAlertDialog("You have already clocked out for today. You can only clock in once per day.", true);
       return;
     }
 
     try {
       const token = localStorage.getItem("token");
-      if (!token) { alert("Authentication token not found. Please log in again."); navigate('/login'); return; }
+      if (!token) { showAlertDialog("Authentication token not found. Please log in again.", true); navigate('/login'); return; }
 
       const employeeId = currentEmployee?.id || localStorage.getItem("employeeId");
-      if (!employeeId) { alert("Employee ID not found. Please log in again."); navigate('/login'); return; }
+      if (!employeeId) { showAlertDialog("Employee ID not found. Please log in again.", true); navigate('/login'); return; }
 
       let locationData = userLocation;
       if (!locationData) {
@@ -343,11 +402,11 @@ const EmployeeDashboard = () => {
         const newRecord = response.data.data;
         setIsClockedIn(true);
         setCurrentAttendanceRecordId(newRecord._id || newRecord.id);
-        alert(`Success: ${response.data.message}${newRecord.isLate ? " (Marked as Late)" : ""}`);
+        showAlertDialog(`Success: ${response.data.message}${newRecord.isLate ? " (Marked as Late)" : ""}`);
         setLocationError(null);
         await fetchAttendanceHistory(employeeId);
       } else {
-        alert(`Failed to record clock-in: ${response.data?.message || `Server error: ${response.status}`}`);
+        showAlertDialog(`Failed to record clock-in: ${response.data?.message || `Server error: ${response.status}`}`, true);
         setLocationError(response.data?.message);
       }
     } catch (error) {
@@ -356,18 +415,18 @@ const EmployeeDashboard = () => {
       else if (error.response?.status === 403) { alertMessage = error.response.data?.message || "You are not within the allowed workspace to record attendance."; }
       else if (error.request) { alertMessage = "Network error: Unable to connect to server."; }
       else if (error.message) { alertMessage = `Request failed: ${error.message}`; }
-      alert(alertMessage); setLocationError(alertMessage);
+      showAlertDialog(alertMessage, true); setLocationError(alertMessage);
     } finally { setLoading(false); }
   };
 
   // Clock-out function
   const handleClockOut = async () => {
     if (!checkAuthStatus()) return;
-    if (!isClockedIn || !currentAttendanceRecordId) { alert("You are not currently clocked in."); return; }
+    if (!isClockedIn || !currentAttendanceRecordId) { showAlertDialog("You are not currently clocked in.", true); return; }
 
     try {
       const token = localStorage.getItem("token");
-      if (!token) { alert("Authentication token not found. Please log in again."); navigate('/login'); return; }
+      if (!token) { showAlertDialog("Authentication token not found. Please log in again.", true); navigate('/login'); return; }
 
       const clockOutTime = new Date().toISOString();
       const baseUrl = getApiBaseUrl();
@@ -383,11 +442,11 @@ const EmployeeDashboard = () => {
         setIsClockedIn(false);
         setCurrentAttendanceRecordId(null);
         setHasClockedOutToday(true); // Mark that the user has clocked out today
-        alert(`Success: ${response.data.message}${updatedRecord.isOvertime ? " (Marked as Overtime)" : ""}`);
+        showAlertDialog(`Success: ${response.data.message}${updatedRecord.isOvertime ? " (Marked as Overtime)" : ""}`);
         setLocationError(null);
         await fetchAttendanceHistory(currentEmployee.id || localStorage.getItem("employeeId"));
       } else {
-        alert(`Failed to record clock-out: ${response.data?.message || `Server error: ${response.status}`}`);
+        showAlertDialog(`Failed to record clock-out: ${response.data?.message || `Server error: ${response.status}`}`, true);
         setLocationError(response.data?.message);
       }
     } catch (error) {
@@ -395,7 +454,7 @@ const EmployeeDashboard = () => {
       if (error.response?.status === 401) { alertMessage = "Session expired. Please log in again."; handleLogout(new Event('click')); }
       else if (error.request) { alertMessage = "Network error: Unable to connect to server."; }
       else if (error.message) { alertMessage = `Request failed: ${error.message}`; }
-      alert(alertMessage); setLocationError(alertMessage);
+      showAlertDialog(alertMessage, true); setLocationError(alertMessage);
     } finally { setLoading(false); }
   };
 
@@ -446,7 +505,7 @@ const EmployeeDashboard = () => {
                 }
             }
         }
-        
+
         setIsClockedIn(clockedInForToday);
         setCurrentAttendanceRecordId(currentRecordId);
         // If there's a record that's both clocked in and clocked out for today, set hasClockedOutToday to true
@@ -485,7 +544,7 @@ const EmployeeDashboard = () => {
                        (response.data?.tasks && Array.isArray(response.data.tasks)) ? response.data.tasks :
                        (response.data?.data && Array.isArray(response.data.data)) ? response.data.data :
                        (response.data && typeof response.data === 'object' && Object.values(response.data).find(val => Array.isArray(val))) || [];
-        
+
         const activeTasks = allTasks.filter(task => !task.deleted && !task.isDeleted && task.status !== 'deleted' && task.active !== false);
 
         if (activeTasks.length === 0) { setTasks([]); setLastFetchTime(new Date().toLocaleTimeString()); return; }
@@ -586,7 +645,7 @@ const EmployeeDashboard = () => {
     if (!file) return null;
     setUploadingCompletedFile(true);
     const token = localStorage.getItem("token");
-    if (!token) { alert("Authentication token not found. Please log in first."); setUploadingCompletedFile(false); return null; }
+    if (!token) { showAlertDialog("Authentication token not found. Please log in first.", true); setUploadingCompletedFile(false); return null; }
 
     const formData = new FormData();
     formData.append('file', file);
@@ -616,7 +675,7 @@ const EmployeeDashboard = () => {
     if (!checkAuthStatus()) return;
     try {
       const token = localStorage.getItem("token");
-      if (!token) { alert("Authentication token not found. Please log in first."); navigate('/login'); return; }
+      if (!token) { showAlertDialog("Authentication token not found. Please log in first.", true); navigate('/login'); return; }
 
       const taskToUpdate = tasks.find(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString()));
       if (!taskToUpdate) { console.error("Task not found with ID:", taskId); return; }
@@ -668,7 +727,7 @@ const EmployeeDashboard = () => {
 
       if (!updateSuccess) { throw lastError || new Error("All update methods failed"); }
 
-      alert(`Task marked as ${newStatus.replace('-', ' ')}`);
+      showAlertDialog(`Task marked as ${newStatus.replace('-', ' ')}`);
       setCompletedFile(null);
       setShowCompletionModal(false);
       setTaskToComplete(null);
@@ -677,14 +736,14 @@ const EmployeeDashboard = () => {
     } catch (err) {
       console.error("Error updating task:", err);
       const originalTask = tasks.find(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString()));
-      if (originalTask) { setTasks(prevTasks => prevTasks.map(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.toString()) ? originalTask : task)); }
+      if (originalTask) { setTasks(prevTasks => prevTasks.map(task => (task.id && task.id.toString() === taskId.toString()) || (task._id && task._id.toString() === taskId.id.toString()) ? originalTask : task)); }
 
-      if (err.response?.status === 403) { alert("You don't have permission to update this task."); }
-      else if (err.response?.status === 404) { alert("Task not found or update endpoint not available."); }
-      else if (err.response?.status === 401) { alert("Session expired. Please log in again."); handleLogout(new Event('click')); }
-      else if (err.response?.status === 422) { alert(`Invalid data: ${err.response?.data?.message || 'Please check the task data'}`); }
-      else if (err.code === 'ECONNABORTED') { alert("Request timeout. Please try again."); }
-      else { alert(`Failed to update task: ${err.response?.data?.message || err.message || 'Unknown error occurred'}`); }
+      if (err.response?.status === 403) { showAlertDialog("You don't have permission to update this task.", true); }
+      else if (err.response?.status === 404) { showAlertDialog("Task not found or update endpoint not available.", true); }
+      else if (err.response?.status === 401) { showAlertDialog("Session expired. Please log in again.", true); handleLogout(new Event('click')); }
+      else if (err.response?.status === 422) { showAlertDialog(`Invalid data: ${err.response?.data?.message || 'Please check the task data'}`, true); }
+      else if (err.code === 'ECONNABORTED') { showAlertDialog("Request timeout. Please try again.", true); }
+      else { showAlertDialog(`Failed to update task: ${err.response?.data?.message || err.message || 'Unknown error occurred'}`, true); }
     }
   };
 
@@ -836,10 +895,12 @@ const EmployeeDashboard = () => {
   }, [authChecked]);
 
   useEffect(() => {
-    if (authChecked && isLoggedIn && !currentEmployee) {
+    // Only fetch profile if not already loaded or if the department needs resolving
+    // This condition ensures fetchEmployeeProfile runs only when necessary.
+    if (authChecked && isLoggedIn && (!currentEmployee || (rawLocalStorageUser?.department && typeof rawLocalStorageUser.department === 'string' && !departmentNamesMap[rawLocalStorageUser.department]))) {
       fetchEmployeeProfile();
     }
-  }, [authChecked, isLoggedIn, currentEmployee]);
+  }, [authChecked, isLoggedIn, rawLocalStorageUser, departmentNamesMap]); // Depend on rawLocalStorageUser and departmentNamesMap to trigger resolution
 
   useEffect(() => {
     if (currentEmployee && isLoggedIn) {
@@ -885,9 +946,12 @@ const EmployeeDashboard = () => {
             <h1 className="text-2xl text-white font-bold" onClick={() => window.location.href = "/"}>
               OfficeCorner
             </h1>
-            <span className="ml-2 bg-green-700 text-xs text-blue-100 px-2 py-1 rounded-full">
-              {(currentEmployee?.department || 'General').toUpperCase()}
-            </span>
+            {/* Department Name Display in Header */}
+            {currentEmployee?.department && currentEmployee.department !== 'General' && (
+              <span className="ml-4 bg-green-700 text-blue-100 text-sm font-semibold px-3 py-1 rounded-full shadow-inner">
+                Department: {currentEmployee.department.toUpperCase()}
+              </span>
+            )}
           </div>
           <div className="hidden md:flex items-center text-white text-sm mr-6">
             <Calendar className="h-4 w-4 mr-2" />
@@ -912,7 +976,7 @@ const EmployeeDashboard = () => {
                   <p className="text-sm font-medium text-gray-900">{currentEmployee?.name || 'Employee'}</p>
                   <p className="text-xs text-gray-500 truncate">{currentEmployee?.email || 'employee@example.com'}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {currentEmployee?.position || 'Staff'} - {currentEmployee?.department || 'General'}
+                    {currentEmployee?.position || 'Staff'} - <span className="font-semibold text-green-700">{currentEmployee?.department || 'General'}</span>
                   </p>
                 </div>
                 <Link to="/profile" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
@@ -1003,6 +1067,10 @@ const EmployeeDashboard = () => {
                       <p><strong className="text-green-700">Deadline:</strong> {formatDateDisplay(task.deadline)}</p>
                       <p><strong className="text-green-700">Priority:</strong> {task.priority}</p>
                       <p><strong className="text-green-700">Status:</strong> <span className={`font-medium ${task.status === 'completed' ? 'text-green-500' : 'text-yellow-600'}`}>{task.status}</span></p>
+                      {/* New: Task Given Date */}
+                      {task.createdAt && (
+                        <p><strong className="text-green-700">Task Given:</strong> {formatDateDisplay(task.createdAt)}</p>
+                      )}
                       {task.assignedFile && (
                         <p className="flex items-center">
                           <Paperclip className="mr-1 text-blue-500" size={16} />
@@ -1262,6 +1330,10 @@ const EmployeeDashboard = () => {
               <p className="flex items-center"><strong className="w-20 text-green-700">Deadline:</strong> {formatDateDisplay(selectedTask.deadline)}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Priority:</strong> {selectedTask.priority}</p>
               <p className="flex items-center"><strong className="w-20 text-green-700">Status:</strong> {selectedTask.status}</p>
+              {/* New: Task Given Date in Task Details Modal */}
+              {selectedTask.createdAt && (
+                <p className="flex items-center"><strong className="w-20 text-green-700">Task Given:</strong> {formatDateDisplay(selectedTask.createdAt)}</p>
+              )}
               {selectedTask.assignedFile && (
                 <p className="flex items-center"><strong className="w-20 text-green-700">Assigned File:</strong>{" "}
                   <a href={selectedTask.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View File</a>
@@ -1398,6 +1470,40 @@ const EmployeeDashboard = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Alert Dialog */}
+      {showCustomAlert && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className={`rounded-lg shadow-lg w-full max-w-sm p-6 relative
+              ${customAlertIsError ? 'bg-red-50 border border-red-500 text-red-700' : 'bg-green-50 border border-green-500 text-green-700'}`}
+            role="alert"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-xl font-semibold ${customAlertIsError ? 'text-red-800' : 'text-green-800'}`}>
+                {customAlertIsError ? 'Error!' : 'Success!'}
+              </h3>
+              <button
+                onClick={closeAlertDialog}
+                className={`text-2xl font-bold ${customAlertIsError ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}`}
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-base">{customAlertMessage}</p>
+            {!customAlertIsError && ( // Show close button only for error messages, success messages auto-close
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={closeAlertDialog}
+                  className={`px-4 py-2 rounded-md transition-colors duration-200
+                    ${customAlertIsError ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                >
+                  Okay
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
