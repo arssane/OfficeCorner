@@ -1,3 +1,4 @@
+// entities/Event.js
 import mongoose from 'mongoose';
 
 const eventSchema = new mongoose.Schema({
@@ -39,6 +40,12 @@ const eventSchema = new mongoose.Schema({
     default: 'public' // Default to public so employees can see it
   },
   link: { // Added link field
+    type: String,
+    trim: true,
+    default: ''
+  },
+  // NEW: Field to store the email of the person assigned to the event
+  assignedTo: {
     type: String,
     trim: true,
     default: ''

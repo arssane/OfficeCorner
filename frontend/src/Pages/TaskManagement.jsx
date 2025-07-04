@@ -644,6 +644,20 @@ const TaskManagement = () => {
         return;
       }
 
+      // Date validation for adding a task
+      if (newTask.deadline) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Normalize today's date to midnight
+        const selectedDate = new Date(newTask.deadline);
+        selectedDate.setHours(0, 0, 0, 0); // Normalize selected date to midnight
+
+        if (selectedDate < today) {
+          setError("Cannot assign a task with a past deadline.");
+          setLoading(false);
+          return;
+        }
+      }
+
       setLoading(true);
 
       let fileUrl = null;
@@ -759,7 +773,22 @@ const TaskManagement = () => {
   };
 
   const handleEditTask = async () => {
-    if (!currentEditingEmployee) return;
+    if (!taskToEdit) return; // Changed from currentEditingEmployee as it's not defined
+
+    // Date validation for editing a task
+    if (taskToEdit.deadline) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Normalize today's date to midnight
+      const selectedDate = new Date(taskToEdit.deadline);
+      selectedDate.setHours(0, 0, 0, 0); // Normalize selected date to midnight
+
+      if (selectedDate < today) {
+        setError("Cannot set a past deadline for the task.");
+        setIsEditFromModal(false); // Close modal
+        setTaskToEdit(null); // Clear task to edit
+        return; // Stop the update process
+      }
+    }
 
     try {
       const token = localStorage.getItem("token");
@@ -1230,6 +1259,7 @@ const TaskManagement = () => {
                     className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                     value={newTask.deadline}
                     onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                    min={new Date().toISOString().split('T')[0]} // Set minimum date to today
                   />
                 </div>
                 
@@ -1468,6 +1498,7 @@ const TaskManagement = () => {
                     className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                     value={taskToEdit.deadline ? taskToEdit.deadline.split('T')[0] : ""}
                     onChange={(e) => setTaskToEdit({ ...taskToEdit, deadline: e.target.value })}
+                    min={new Date().toISOString().split('T')[0]} // Set minimum date to today
                   />
                 </div>
                 

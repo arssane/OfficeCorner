@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from 'axios';
-import { Calendar as CalendarIcon, Clock, MapPin, Link2, Plus, Edit, Trash2, X } from 'lucide-react'; // Import icons
+import { Calendar as CalendarIcon, Clock, MapPin, Link2, Plus, Edit, Trash2, X, Users } from 'lucide-react'; // Import icons, added Users
 
 // A basic Modal component definition
 const Modal = ({ open, onClose, children }) => {
   if (!open) return null;
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm mx-auto p-6" onClick={(e) => e.stopPropagation()}>
+      {/* Increased max-w-md for better content display and added overflow-y-auto */}
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-auto p-6 overflow-y-auto max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>
@@ -84,13 +85,23 @@ const formatDisplayTime = (timeString) => {
 
       const hour = dateObj.getHours();
       const minutes = dateObj.getMinutes();
-      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const ampm = hour >= 12 ? 'PM' : 'AM'; // Corrected typo: amppm to ampm
       const hour12 = hour % 12 || 12;
 
       return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
   } catch (e) {
       console.error("Error formatting time:", e);
       return 'Error Time';
+  }
+};
+
+const formatDateDisplay = (dateString) => {
+  if (!dateString) return 'N/A';
+  try {
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+    return new Date(dateString).toLocaleDateString(undefined, options);
+  } catch (e) {
+    return dateString;
   }
 };
 
@@ -106,7 +117,8 @@ const CalendarPlanning = () => {
   const [events, setEvents] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false); // Add Event Modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false); // Edit Event Modal
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false); // View Event Details Modal
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false); // View Single Event Details Modal (from list below calendar)
+  const [isDailyEventsModalOpen, setIsDailyEventsModalOpen] = useState(false); // New: View Events for a specific day (from calendar click)
   const [isDeleteEventOpen, setIsDeleteEventOpen] = useState(false); // Delete Confirmation Modal
   
   const [newEvent, setNewEvent] = useState({
@@ -118,15 +130,27 @@ const CalendarPlanning = () => {
     location: '',
     type: 'meeting',
     visibility: 'public',
-    link: ''
+    link: '',
+    assignedTo: '', // Can be employee ID or department ID
   });
 
   const [editEvent, setEditEvent] = useState(null);
-  const [selectedEvent, setSelectedEvent] = useState(null); // Used for viewing and deletion
+  const [selectedEvent, setSelectedEvent] = useState(null); // Used for viewing and deletion (single event from list)
+  const [selectedDayEvents, setSelectedDayEvents] = useState(null); // New: Used for viewing events on a specific day (from calendar click)
+
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('dateAsc');
   const [toast, setToast] = useState(null); // For toast notifications
+
+  // New states for department assignment
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [assignToType, setAssignToType] = useState('employee'); // 'employee' or 'department'
+  const [selectedDepartmentForEvent, setSelectedDepartmentForEvent] = useState('');
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState("");
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+  const assignToRef = useRef(null); // Ref for click outside logic
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -135,6 +159,20 @@ const CalendarPlanning = () => {
   const closeToast = () => {
     setToast(null);
   };
+
+  // Effect to handle clicks outside the employee/department dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (assignToRef.current && !assignToRef.current.contains(event.target)) {
+        setShowEmployeeDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [assignToRef]);
 
   // Optimized: Pre-process events into a map for faster lookup
   const eventsByDate = useMemo(() => {
@@ -189,6 +227,84 @@ const CalendarPlanning = () => {
     return `${baseUrl}/events`;
   };
 
+  const getEmployeeEndpoint = () => {
+    const storedEndpoint = localStorage.getItem("employeeEndpoint");
+    return storedEndpoint || `${getApiBaseUrl()}/users`;
+  };
+
+  const getDepartmentEndpoint = () => {
+    const storedEndpoint = localStorage.getItem("departmentEndpoint");
+    return storedEndpoint || `${getApiBaseUrl()}/departments`;
+  };
+
+  // Fetch employees from API
+  const fetchEmployees = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await axios.get(getEmployeeEndpoint(), {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        const employeesData = response.data.users || response.data.data || response.data;
+        if (Array.isArray(employeesData)) {
+          const processedEmployees = employeesData.map(emp => ({
+            _id: emp._id || emp.id,
+            id: emp.id || emp._id,
+            name: emp.name || emp.username || emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unknown',
+            username: emp.username,
+            email: emp.email,
+            role: emp.role,
+            department: emp.department
+          }));
+          setEmployees(processedEmployees);
+          localStorage.setItem('employees', JSON.stringify(processedEmployees));
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching employees:", err);
+    }
+  };
+
+  // Fetch departments from API
+  const fetchDepartments = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await axios.get(getDepartmentEndpoint(), {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        const departmentsData = response.data.departments || response.data.data || response.data;
+        if (Array.isArray(departmentsData)) {
+          const processedDepartments = departmentsData.map(dept => ({
+            _id: dept._id || dept.id,
+            id: dept.id || dept._id,
+            name: dept.name,
+            code: dept.code,
+          }));
+          setDepartments(processedDepartments);
+          localStorage.setItem('departments', JSON.stringify(processedDepartments));
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching departments:", err);
+    }
+  };
+
+  // Fetch events, employees, and departments on component mount
+  useEffect(() => {
+    fetchEvents();
+    fetchEmployees();
+    fetchDepartments();
+  }, []);
+
   // Fetch events from API
   const fetchEvents = async () => {
     setLoading(true);
@@ -240,6 +356,7 @@ const CalendarPlanning = () => {
           location: event.location || '',
           visibility: event.visibility || 'public',
           type: event.type || 'other',
+          assignedTo: event.assignedTo || '' // Ensure assignedTo is present
         }));
         setEvents(processedEvents);
       } else {
@@ -259,6 +376,13 @@ const CalendarPlanning = () => {
   const addEvent = async () => {
     setLoading(true);
     try {
+      // Date validation: Cannot add event in the past
+      if (isDateInPast(newEvent.date)) {
+        showToast("Cannot add an event with a past date.", "error");
+        setLoading(false);
+        return;
+      }
+
       const token = localStorage.getItem('token');
       if (!token) {
         showToast("Authentication token not found. Please log in.", "error");
@@ -267,30 +391,64 @@ const CalendarPlanning = () => {
         return;
       }
 
-      const eventData = {
-        title: newEvent.title,
-        description: newEvent.description,
-        date: newEvent.date,
-        startTime: newEvent.startTime,
-        endTime: newEvent.endTime,
-        location: newEvent.location,
-        type: newEvent.type,
-        visibility: newEvent.visibility,
-        link: newEvent.link
-      };
+      let eventsToCreate = [];
 
-      const response = await axios.post(getEventEndpoint(), eventData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-      });
-
-      if (response.status >= 200 && response.status < 300) {
-        showToast("Event added successfully!", "success");
-        fetchEvents();
-        setIsModalOpen(false);
-        setNewEvent({ title: '', description: '', date: formatDateToYYYYMMDD(new Date()), startTime: formatTimeToHHMM(new Date()), endTime: '', location: '', type: 'meeting', visibility: 'public', link: '' });
-      } else {
-        showToast(response.data.message || "Failed to add event.", "error");
+      if (assignToType === 'employee') {
+        if (!newEvent.assignedTo) {
+          showToast("Please select an employee to assign the event to.", "error");
+          setLoading(false);
+          return;
+        }
+        eventsToCreate.push({
+          ...newEvent,
+          assignedTo: newEvent.assignedTo, // Single employee ID
+        });
+      } else if (assignToType === 'department') {
+        if (!selectedDepartmentForEvent) {
+          showToast("Please select a department to assign the event to.", "error");
+          setLoading(false);
+          return;
+        }
+        // When assigning to a department, we'll assign the department ID directly
+        // This assumes the backend can handle a department ID as an assignee for events.
+        eventsToCreate.push({
+          ...newEvent,
+          assignedTo: selectedDepartmentForEvent, // Assign department ID
+        });
       }
+
+      let allEventsSuccess = true;
+      for (const eventData of eventsToCreate) {
+        try {
+          const response = await axios.post(getEventEndpoint(), eventData, {
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+          });
+
+          if (!(response.status >= 200 && response.status < 300)) {
+            console.error(`Failed to create event for one assignee: ${response.data?.message || response.statusText}`);
+            allEventsSuccess = false;
+          }
+        } catch (err) {
+          console.error(`Error creating event for one assignee: ${err.message}`);
+          allEventsSuccess = false;
+        }
+      }
+
+      if (allEventsSuccess) {
+        showToast("Event(s) added successfully!", "success");
+      } else if (eventsToCreate.length > 0) {
+        showToast("Some events were created, but there were errors with others. Check console for details.", "error");
+      } else {
+        showToast("Failed to create any events. Please check the form and server logs.", "error");
+      }
+
+      fetchEvents();
+      setIsModalOpen(false);
+      setNewEvent({ title: '', description: '', date: formatDateToYYYYMMDD(new Date()), startTime: formatTimeToHHMM(new Date()), endTime: '', location: '', type: 'meeting', visibility: 'public', link: '', assignedTo: '' });
+      setEmployeeSearchQuery("");
+      setSelectedDepartmentForEvent("");
+      setAssignToType('employee');
+
     } catch (err) {
       console.error("Error adding event:", err);
       showToast(err.response?.data?.message || "An error occurred while adding the event.", "error");
@@ -316,6 +474,13 @@ const CalendarPlanning = () => {
         return;
       }
 
+      // Date validation: Cannot set event to a past date
+      if (isDateInPast(editEvent.date)) {
+        showToast("Cannot set event to a past date.", "error");
+        setLoading(false);
+        return;
+      }
+
       const eventData = {
         title: editEvent.title,
         description: editEvent.description,
@@ -325,7 +490,8 @@ const CalendarPlanning = () => {
         location: editEvent.location,
         type: editEvent.type,
         visibility: editEvent.visibility,
-        link: editEvent.link
+        link: editEvent.link,
+        assignedTo: editEvent.assignedTo, // Ensure assignedTo is passed
       };
 
       const eventId = editEvent.id || editEvent._id;
@@ -365,6 +531,7 @@ const CalendarPlanning = () => {
         fetchEvents();
         setIsEditModalOpen(false);
         setEditEvent(null);
+        setEmployeeSearchQuery(""); // Clear search query on modal close
       } else {
         showToast("Failed to update event using all known endpoints.", "error");
       }
@@ -440,11 +607,6 @@ const CalendarPlanning = () => {
     }
   };
 
-  // Fetch events on component mount
-  useEffect(() => {
-    fetchEvents();
-  }, []);
-
   // Calendar rendering logic
   const renderCalendarDays = () => {
     const year = currentDate.getFullYear();
@@ -475,9 +637,12 @@ const CalendarPlanning = () => {
             border-gray-200 shadow-sm overflow-hidden
           `}
           onClick={() => {
-            setSelectedEvent(null); // Clear selected event if clicking on a date
-            setNewEvent(prev => ({ ...prev, date: fullDate }));
-            setIsModalOpen(true);
+            // New behavior: Clicking a date shows events for that day, not opens add modal
+            if (eventsForDay.length > 0) {
+              setSelectedDayEvents({ date: fullDate, events: eventsForDay });
+              setIsDailyEventsModalOpen(true);
+            }
+            // If no events, do nothing on click, user should use "Add Event" button
           }}
         >
           <span className={`text-lg font-semibold mb-1 ${isToday ? 'text-green-700' : ''}`}>
@@ -490,8 +655,8 @@ const CalendarPlanning = () => {
                   key={event.id || event._id}
                   className="bg-emerald-200 text-emerald-800 rounded-full px-2 py-0.5 truncate max-w-full hover:bg-emerald-300 transition-colors"
                   onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedEvent(event);
+                    e.stopPropagation(); // Prevent opening the daily events modal if clicking a specific event
+                    setSelectedEvent(event); // Set the single event for the view modal
                     setIsViewModalOpen(true);
                   }}
                   title={`${event.title} (${formatDisplayTime(event.startTime)})`}
@@ -517,6 +682,51 @@ const CalendarPlanning = () => {
   const handleNextMonth = () => {
     setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   };
+
+  // Filter employees for dropdown based on search query
+  const assignableEmployees = employees.filter(employee =>
+    employee.role !== 'Administrator' &&
+    (employee.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
+     employee.username?.toLowerCase().includes(employeeSearchQuery.toLowerCase()))
+  );
+
+  // Helper to get assigned name for display
+  const getAssignedToName = (assignedToId) => {
+    if (!assignedToId) return "Unassigned";
+
+    const employee = employees.find(emp => (emp._id === assignedToId || emp.id === assignedToId));
+    if (employee) {
+      return employee.username ? `${employee.name} (${employee.username})` : employee.name;
+    }
+
+    const department = departments.find(dept => (dept._id === assignedToId || dept.id === assignedToId));
+    if (department) {
+      return `Department: ${department.name}`;
+    }
+
+    return "Unknown Assignee";
+  };
+
+  useEffect(() => {
+    if (isModalOpen) {
+      setEmployeeSearchQuery("");
+      setNewEvent(prev => ({ ...prev, assignedTo: "" }));
+      setSelectedDepartmentForEvent("");
+      setAssignToType('employee');
+    }
+    if (isEditModalOpen && editEvent) {
+      const assignedEmployee = employees.find(emp => (emp._id === editEvent.assignedTo || emp.id === editEvent.assignedTo));
+      if (assignedEmployee) {
+        setEmployeeSearchQuery(assignedEmployee.username ? `${assignedEmployee.name} (${assignedEmployee.username})` : assignedEmployee.name);
+        setEditEvent(prev => ({ ...prev, assignedTo: assignedEmployee._id || assignedEmployee.id }));
+      } else {
+        setEmployeeSearchQuery("");
+        setEditEvent(prev => ({ ...prev, assignedTo: "" }));
+      }
+      setAssignToType('employee'); // Force employee assignment for edit modal
+      setSelectedDepartmentForEvent("");
+    }
+  }, [isModalOpen, isEditModalOpen, editEvent, employees]);
 
 
   return (
@@ -572,7 +782,10 @@ const CalendarPlanning = () => {
             {(userRole === 'administrator' || userRole === 'admin') && (
               <button
                 onClick={() => {
-                  setNewEvent({ title: '', description: '', date: formatDateToYYYYMMDD(new Date()), startTime: formatTimeToHHMM(new Date()), endTime: '', location: '', type: 'meeting', visibility: 'public', link: '' });
+                  setNewEvent({ title: '', description: '', date: formatDateToYYYYMMDD(new Date()), startTime: formatTimeToHHMM(new Date()), endTime: '', location: '', type: 'meeting', visibility: 'public', link: '', assignedTo: '' });
+                  setEmployeeSearchQuery("");
+                  setSelectedDepartmentForEvent("");
+                  setAssignToType('employee');
                   setIsModalOpen(true);
                 }}
                 className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition w-full sm:w-auto flex items-center justify-center"
@@ -613,6 +826,12 @@ const CalendarPlanning = () => {
                       </>
                     )}
                   </p>
+                  {event.assignedTo && (
+                    <p className="text-sm text-gray-500 flex items-center mt-1">
+                      <Users size={14} className="mr-1" />
+                      <strong className="font-medium">Assigned To:</strong> {getAssignedToName(event.assignedTo)}
+                    </p>
+                  )}
                 </div>
                 <div className="mt-3 sm:mt-0 flex flex-wrap gap-2">
                   {event.link && (
@@ -667,7 +886,9 @@ const CalendarPlanning = () => {
             <div>
               <label htmlFor="date" className="block text-sm font-medium text-gray-700">Date</label>
               <input type="date" id="date" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"
-                value={newEvent.date} onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })} required />
+                value={newEvent.date} onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })} 
+                min={formatDateToYYYYMMDD(new Date())} // Prevent past dates
+                required />
             </div>
             <div>
               <label htmlFor="startTime" className="block text-sm font-medium text-gray-700">Start Time</label>
@@ -710,11 +931,113 @@ const CalendarPlanning = () => {
               </select>
             </div>
           </div>
+
+          {/* Assign To Type Selection */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Assign To</label>
+            <div className="flex items-center space-x-4">
+              <label className="inline-flex items-center">
+                <input
+                  type="radio"
+                  className="form-radio text-green-600"
+                  name="assignToType"
+                  value="employee"
+                  checked={assignToType === 'employee'}
+                  onChange={() => {
+                    setAssignToType('employee');
+                    setSelectedDepartmentForEvent('');
+                    setNewEvent(prev => ({ ...prev, assignedTo: "" }));
+                    setEmployeeSearchQuery("");
+                  }}
+                />
+                <span className="ml-2 text-gray-700">Employee</span>
+              </label>
+              <label className="inline-flex items-center">
+                <input
+                  type="radio"
+                  className="form-radio text-green-600"
+                  name="assignToType"
+                  value="department"
+                  checked={assignToType === 'department'}
+                  onChange={() => {
+                    setAssignToType('department');
+                    setNewEvent(prev => ({ ...prev, assignedTo: "" }));
+                    setEmployeeSearchQuery("");
+                  }}
+                />
+                <span className="ml-2 text-gray-700">Department</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Conditional Assign To Fields */}
+          {assignToType === 'employee' && (
+            <div className="mb-4 relative" ref={assignToRef}>
+              <label htmlFor="assignedToEmployee" className="block text-sm font-medium text-gray-700">Assigned To Employee</label>
+              <input
+                type="text"
+                id="assignedToEmployee"
+                placeholder="Search or select employee"
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"
+                value={employeeSearchQuery}
+                onChange={(e) => {
+                  setEmployeeSearchQuery(e.target.value);
+                  setShowEmployeeDropdown(true);
+                  setNewEvent(prev => ({ ...prev, assignedTo: "" })); // Clear actual assignedTo when typing
+                }}
+                onFocus={() => setShowEmployeeDropdown(true)}
+              />
+              {showEmployeeDropdown && assignableEmployees.length > 0 && (
+                <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto mt-1">
+                  {assignableEmployees.map(employee => (
+                    <li
+                      key={employee._id || employee.id}
+                      className="p-2 hover:bg-gray-100 cursor-pointer text-gray-800"
+                      onClick={() => {
+                        const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
+                        setEmployeeSearchQuery(displayName);
+                        setNewEvent(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                        setShowEmployeeDropdown(false);
+                      }}
+                    >
+                      {employee.name} {employee.username && `(${employee.username})`}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {employeeSearchQuery && assignableEmployees.length === 0 && (
+                <p className="text-sm text-red-500 mt-2">No matching employees found.</p>
+              )}
+              {!newEvent.assignedTo && employeeSearchQuery && assignableEmployees.length > 0 && (
+                <p className="text-sm text-amber-600 mt-2">Please select an employee from the dropdown.</p>
+              )}
+            </div>
+          )}
+
+          {assignToType === 'department' && (
+            <div className="mb-4">
+              <label htmlFor="assignedToDepartment" className="block text-sm font-medium text-gray-700">Assigned To Department</label>
+              <select
+                id="assignedToDepartment"
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                value={selectedDepartmentForEvent}
+                onChange={(e) => setSelectedDepartmentForEvent(e.target.value)}
+                required
+              >
+                <option value="">Select a Department</option>
+                {departments.map(dept => (
+                  <option key={dept._id || dept.id} value={dept._id || dept.id}>
+                    {dept.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           
           <div className="flex justify-end space-x-3">
             <button type="button" onClick={() => setIsModalOpen(false)}
               className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors">Cancel</button>
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={loading || (assignToType === 'employee' && !newEvent.assignedTo) || (assignToType === 'department' && !selectedDepartmentForEvent)}
               className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               {loading ? 'Adding...' : 'Add Event'}
             </button>
@@ -742,7 +1065,9 @@ const CalendarPlanning = () => {
                 <div>
                   <label htmlFor="editDate" className="block text-sm font-medium text-gray-700">Date</label>
                   <input type="date" id="editDate" className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"
-                    value={editEvent.date} onChange={(e) => setEditEvent({ ...editEvent, date: e.target.value })} required />
+                    value={editEvent.date} onChange={(e) => setEditEvent({ ...editEvent, date: e.target.value })} 
+                    min={formatDateToYYYYMMDD(new Date())} // Prevent past dates
+                    required />
                 </div>
                 <div>
                   <label htmlFor="editStartTime" className="block text-sm font-medium text-gray-700">Start Time</label>
@@ -785,11 +1110,53 @@ const CalendarPlanning = () => {
                   </select>
                 </div>
               </div>
+
+              {/* Assign To Employee for Edit Modal (always employee-centric for simplicity) */}
+              <div className="mb-4 relative" ref={assignToRef}>
+                <label htmlFor="editAssignedToEmployee" className="block text-sm font-medium text-gray-700">Assigned To Employee</label>
+                <input
+                  type="text"
+                  id="editAssignedToEmployee"
+                  placeholder="Search or select employee"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"
+                  value={employeeSearchQuery}
+                  onChange={(e) => {
+                    setEmployeeSearchQuery(e.target.value);
+                    setShowEmployeeDropdown(true);
+                    setEditEvent(prev => ({ ...prev, assignedTo: "" })); // Clear actual assignedTo when typing
+                  }}
+                  onFocus={() => setShowEmployeeDropdown(true)}
+                />
+                {showEmployeeDropdown && assignableEmployees.length > 0 && (
+                  <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto mt-1">
+                    {assignableEmployees.map(employee => (
+                      <li
+                        key={employee._id || employee.id}
+                        className="p-2 hover:bg-gray-100 cursor-pointer text-gray-800"
+                        onClick={() => {
+                          const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
+                          setEmployeeSearchQuery(displayName);
+                          setEditEvent(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                          setShowEmployeeDropdown(false);
+                        }}
+                      >
+                        {employee.name} {employee.username && `(${employee.username})`}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {employeeSearchQuery && assignableEmployees.length === 0 && (
+                  <p className="text-sm text-red-500 mt-2">No matching employees found.</p>
+                )}
+                {!editEvent.assignedTo && employeeSearchQuery && assignableEmployees.length > 0 && (
+                  <p className="text-sm text-amber-600 mt-2">Please select an employee from the dropdown.</p>
+                )}
+              </div>
               
               <div className="flex justify-end space-x-3">
                 <button type="button" onClick={() => {setIsEditModalOpen(false); setEditEvent(null);}}
                   className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors">Cancel</button>
-                <button type="submit" disabled={loading}
+                <button type="submit" disabled={loading || !editEvent.assignedTo}
                   className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                   {loading ? 'Updating...' : 'Update Event'}
                 </button>
@@ -799,7 +1166,7 @@ const CalendarPlanning = () => {
         )}
       </Modal>
 
-      {/* View Event Details Modal */}
+      {/* View Single Event Details Modal (from list below calendar) */}
       <Modal open={isViewModalOpen} onClose={() => {setIsViewModalOpen(false); setSelectedEvent(null);}}>
         {selectedEvent && (
           <div className="relative">
@@ -823,6 +1190,12 @@ const CalendarPlanning = () => {
               </p>
               <p><strong className="font-medium">Type:</strong> {selectedEvent.type}</p>
               <p><strong className="font-medium">Visibility:</strong> {selectedEvent.visibility}</p>
+              {selectedEvent.assignedTo && (
+                    <p className="text-sm text-gray-700 flex items-center">
+                      <Users size={14} className="mr-1" />
+                      <strong className="font-medium">Assigned To:</strong> {getAssignedToName(selectedEvent.assignedTo)}
+                    </p>
+                  )}
               {selectedEvent.link && (
                 <p className="flex items-center">
                   <Link2 size={14} className="mr-2" />
@@ -853,6 +1226,87 @@ const CalendarPlanning = () => {
                 </button>
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* New: Daily Events List Modal (triggered by clicking a date on the calendar) */}
+      <Modal open={isDailyEventsModalOpen} onClose={() => {setIsDailyEventsModalOpen(false); setSelectedDayEvents(null);}}>
+        {selectedDayEvents && (
+          <div className="relative">
+            <button
+              onClick={() => {setIsDailyEventsModalOpen(false); setSelectedDayEvents(null);}}
+              className="absolute top-0 right-0 text-gray-500 hover:text-gray-700"
+            >
+              <X size={20} />
+            </button>
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">Events on {formatDateDisplay(selectedDayEvents.date)}</h3>
+            {selectedDayEvents.events.length === 0 ? (
+              <p className="text-gray-600">No events scheduled for this day.</p>
+            ) : (
+              <div className="space-y-4">
+                {selectedDayEvents.events.map(event => (
+                  <div key={event.id || event._id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 shadow-sm">
+                    <h4 className="text-lg font-semibold text-gray-900 mb-1">{event.title}</h4>
+                    <p className="text-sm text-gray-600 mb-1">{event.description}</p>
+                    <p className="text-sm text-gray-500 flex items-center">
+                      <Clock size={14} className="mr-1" />
+                      {formatDisplayTime(event.startTime)} {event.endTime && ` - ${formatDisplayTime(event.endTime)}`}
+                      {event.location && (
+                        <>
+                          <MapPin size={14} className="ml-3 mr-1" />
+                          {event.location}
+                        </>
+                      )}
+                    </p>
+                    {event.assignedTo && (
+                      <p className="text-sm text-gray-500 flex items-center mt-1">
+                        <Users size={14} className="mr-1" />
+                        <strong className="font-medium">Assigned To:</strong> {getAssignedToName(event.assignedTo)}
+                      </p>
+                    )}
+                    {event.link && (
+                      <p className="text-sm text-gray-500 flex items-center mt-1">
+                        <Link2 size={14} className="mr-1" />
+                        <strong className="font-medium">Link:</strong> <a href={event.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{event.link}</a>
+                      </p>
+                    )}
+                    {(userRole === 'administrator' || userRole === 'admin') && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => {
+                            setIsDailyEventsModalOpen(false); // Close this modal
+                            setEditEvent(event); // Set the specific event for editing
+                            setIsEditModalOpen(true); // Open edit modal
+                          }}
+                          className="bg-gray-100 text-gray-800 px-3 py-1 rounded-md text-sm hover:bg-gray-200 flex items-center"
+                        >
+                          <Edit size={14} className="mr-1" /> Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsDailyEventsModalOpen(false); // Close this modal
+                            setSelectedEvent(event); // Set the specific event for deletion
+                            setIsDeleteEventOpen(true); // Open delete confirmation
+                          }}
+                          className="bg-red-100 text-red-800 px-3 py-1 rounded-md text-sm hover:bg-red-200 flex items-center"
+                        >
+                          <Trash2 size={14} className="mr-1" /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => {setIsDailyEventsModalOpen(false); setSelectedDayEvents(null);}}
+                className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors duration-200"
+              >
+                Close
+              </button>
+            </div>
           </div>
         )}
       </Modal>

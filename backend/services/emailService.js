@@ -234,6 +234,49 @@ const getEmailTemplates = (userName = '', reason = '') => ({
         </div>
       </div>
     `
+  },
+  // UPDATED: Event Assignment Email Template to accept two links
+  'event-assignment': {
+    subject: (eventTitle) => `New Event Assigned: ${eventTitle}`,
+    html: (eventDetails, adminProvidedEventLink, siteLink) => `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0;">
+        <div style="background-color: #1a73e8; color: white; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">You've Been Assigned to a New Event!</h2>
+        </div>
+        <div style="padding: 20px; color: #333;">
+          <p style="font-size: 16px;">Hello ${eventDetails.assignedUserName || 'User'},</p>
+          <p style="font-size: 16px;">A new event has been assigned to you:</p>
+          <ul style="list-style-type: none; padding: 0; margin: 20px 0;">
+            <li style="margin-bottom: 10px;"><strong>Title:</strong> ${eventDetails.title}</li>
+            <li style="margin-bottom: 10px;"><strong>Description:</strong> ${eventDetails.description || 'N/A'}</li>
+            <li style="margin-bottom: 10px;"><strong>Date:</strong> ${eventDetails.date}</li>
+            <li style="margin-bottom: 10px;"><strong>Time:</strong> ${eventDetails.startTime}${eventDetails.endTime ? ` - ${eventDetails.endTime}` : ''}</li>
+            <li style="margin-bottom: 10px;"><strong>Location:</strong> ${eventDetails.location || 'N/A'}</li>
+            <li style="margin-bottom: 10px;"><strong>Type:</strong> ${eventDetails.type}</li>
+            ${adminProvidedEventLink ? `<li style="margin-bottom: 10px;"><strong>Event Link:</strong> <a href="${adminProvidedEventLink}" style="color: #1a73e8; text-decoration: underline;">${adminProvidedEventLink}</a></li>` : ''}
+          </ul>
+          ${siteLink ? ` 
+            <p style="font-size: 16px;">You can view more details about this event by clicking the button below:</p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 20px auto;">
+              <tr>
+                <td style="border-radius: 5px; background: #1a73e8; text-align: center;">
+                  <a href="${siteLink}" style="background: #1a73e8; border: 1px solid #1a73e8; font-family: Arial, sans-serif; font-size: 16px; line-height: 1.2; text-align: center; text-decoration: none; display: block; border-radius: 5px; font-weight: bold; padding: 12px 25px; color: #ffffff;">
+                    View Event Details
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="font-size: 14px; color: #555;">If the button above doesn't work, you can also copy and paste the following link into your browser:</p>
+            <p style="font-size: 14px;"><a href="${siteLink}" style="color: #1a73e8; text-decoration: underline;">${siteLink}</a></p>
+          ` : '<p style="font-size: 16px;">A link to view event details on the site is not available.</p>'}
+          <p style="font-size: 14px; color: #555; margin-top: 20px;">We look forward to your participation!</p>
+        </div>
+        <div style="text-align: center; padding: 15px; font-size: 12px; color: #777; border-top: 1px solid #e0e0e0; margin-top: 20px;">
+          <p>This is an automated message, please do not reply.</p>
+          <p>&copy; ${new Date().getFullYear()} Your Company Name. All rights reserved.</p>
+        </div>
+      </div>
+    `
   }
 });
 
@@ -295,6 +338,37 @@ const sendGenericEmail = async (email, subject, purpose, userName = '', reason =
     return { success: false, message: 'Failed to send email' };
   }
 };
+
+// UPDATED: Function to send event assignment email - now accepts two links
+const sendEventAssignmentEmail = async (toEmail, eventDetails, adminProvidedEventLink, siteLink) => {
+  try {
+    const transporter = createTransporter();
+    
+    const emailTemplates = getEmailTemplates(eventDetails.assignedUserName); // Pass assigned user's name
+    const template = emailTemplates['event-assignment'];
+    
+    if (!template) {
+      console.error(`❌ No email template found for purpose: event-assignment`);
+      return { success: false, message: `No email template found for purpose: event-assignment` };
+    }
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: toEmail,
+      subject: template.subject(eventDetails.title), // Subject can be dynamic
+      html: template.html(eventDetails, adminProvidedEventLink, siteLink) // Pass both links to the HTML template
+    };
+    
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Event assignment email sent to ${toEmail} for event: ${eventDetails.title}`);
+    
+    return { success: true, message: 'Event assignment email sent successfully' };
+  } catch (error) {
+    console.error(`❌ Error sending event assignment email to ${toEmail}:`, error);
+    return { success: false, message: 'Failed to send event assignment email' };
+  }
+};
+
 
 // Clean expired OTPs (utility function)
 const cleanExpiredOTPs = () => {
@@ -415,6 +489,7 @@ export {
   sendOTP,
   verifyOTP,
   sendGenericEmail,
+  sendEventAssignmentEmail, 
   cleanExpiredOTPs,
   getOTPStats,
   hasActiveOTP,
