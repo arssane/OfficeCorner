@@ -1,4 +1,4 @@
-// routes/auth.js - Updated authentication routes with Email OTP endpoints
+// routes/auth.js - Updated authentication routes with Email OTP endpoints and Department Assignment
 import express from 'express';
 import { 
   register, 
@@ -12,7 +12,8 @@ import {
   sendOTPEmail,
   verifyOTPCode,
   emailRegister,
-  emailLogin
+  emailLogin,
+  updateUserDepartment // Import the new controller function
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -36,5 +37,8 @@ router.post('/google-check', googleCheck);        // Check if Google user exists
 router.post('/google-signin', googleSignin);      // Google sign-in for existing users
 router.post('/google-signup', googleSignup);      // Google sign-up for new users
 router.post('/google-lookup', googleLookup);      // Lookup pending user data
+
+// NEW: Route for updating user department and sending email notification
+router.put('/users/:userId/department', protect, updateUserDepartment);
 
 export default router;

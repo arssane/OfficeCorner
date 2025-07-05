@@ -117,10 +117,10 @@ const EmployeeManagement = () => {
         return;
       }
 
-      // Update the selected employee's department
+      // Call the new backend endpoint for updating department and sending email
       await axios.put(
-        `${apiBaseUrl}/users/${selectedEmployeeForDept}`,
-        { department: selectedDepartment._id },
+        `${apiBaseUrl}/auth/users/${selectedEmployeeForDept}/department`, // New endpoint
+        { department: selectedDepartment._id }, // Pass the new department ID
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -182,9 +182,10 @@ const EmployeeManagement = () => {
           return;
         }
 
+        // Call the new backend endpoint for updating department and sending email
         await axios.put(
-          `${apiBaseUrl}/users/${employeeId}`,
-          { department: null },
+          `${apiBaseUrl}/auth/users/${employeeId}/department`, // New endpoint
+          { department: null }, // Pass null to remove from department
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -490,22 +491,47 @@ const EmployeeManagement = () => {
       }
 
       const updatedData = { ...currentEditingEmployee };
-      if (updatedData.department === "") {
-        updatedData.department = null;
+      // If department is being set to empty, send null
+      const departmentToSend = updatedData.department === "" ? null : updatedData.department;
+
+      // Check if department has changed
+      const originalEmployee = employees.find(emp => emp._id === currentEditingEmployee._id);
+      const originalDepartmentId = originalEmployee ? (originalEmployee.department || null) : null;
+      const departmentChanged = departmentToSend !== originalDepartmentId;
+
+      // If department changed, use the new dedicated endpoint
+      if (departmentChanged) {
+        await axios.put(
+          `${apiBaseUrl}/auth/users/${currentEditingEmployee._id}/department`,
+          { department: departmentToSend },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          }
+        );
+        // Remove department from updatedData so it's not sent twice or incorrectly
+        delete updatedData.department; 
       }
 
+      // Update other employee details using the general user update endpoint
+      // Only send other fields if they are present and not just the department
+      if (Object.keys(updatedData).length > 1 || !departmentChanged) { // If there are other fields or department didn't change
+        await axios.put(
+          `${apiBaseUrl}/users/${currentEditingEmployee._id}`,
+          updatedData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000
+          }
+        );
+      }
 
-      await axios.put(
-        `${apiBaseUrl}/users/${currentEditingEmployee._id}`,
-        updatedData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 10000
-        }
-      );
 
       await fetchEmployees();
       setCurrentEditingEmployee(null);
@@ -770,7 +796,7 @@ const EmployeeManagement = () => {
                               className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-md transition duration-300 ease-in-out transform hover:scale-105"
                               onClick={() => {
                                 setCurrentEditingEmployee(employee);
-                                setNewEmployee(employee);
+                                setNewEmployee(employee); // Pre-fill form with employee data
                                 setIsEmployeeModalOpen(true);
                               }}
                               title="Edit Employee"

@@ -635,6 +635,22 @@ const TaskManagement = () => {
     }
   };
 
+  // Helper function to get Cloudinary download link
+  const getDownloadLink = (fileUrl) => {
+    if (!fileUrl) return '#';
+    // Check if it's a Cloudinary URL
+    if (fileUrl.includes('res.cloudinary.com')) {
+      // Example Cloudinary URL: https://res.cloudinary.com/cloud_name/image/upload/v12345/path/to/file.ext
+      // We want to insert fl_attachment/ after /upload/
+      const parts = fileUrl.split('/upload/');
+      if (parts.length === 2) {
+        return `${parts[0]}/upload/fl_attachment/${parts[1]}`;
+      }
+    }
+    // For non-Cloudinary URLs or if parsing fails, return the original URL
+    return fileUrl;
+  };
+
   const handleAddTask = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -1162,12 +1178,12 @@ const TaskManagement = () => {
                             {/* FaPaperclip Icon */}
                             <svg className="mr-2 text-blue-500" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1a1 1 0 100 2h1a1 1 0 01-1.707.707l-7-7a1 1 0 010-1.414z" clipRule="evenodd"></path><path fillRule="evenodd" d="M10 12a2 2 0 10-4 0v3a2 2 0 104 0v-3z" clipRule="evenodd"></path></svg>
                             <a 
-                              href={task.assignedFile} 
+                              href={getDownloadLink(task.assignedFile)} 
                               target="_blank" 
                               rel="noopener noreferrer" 
                               className="text-blue-600 hover:underline"
                             >
-                              Assigned File
+                              Download Assigned File
                             </a>
                           </div>
                         )}
@@ -1181,7 +1197,7 @@ const TaskManagement = () => {
                               rel="noopener noreferrer" 
                               className="text-emerald-600 hover:underline"
                             >
-                              Completed File
+                              View Completed File
                             </a>
                           </div>
                         )}
@@ -1575,12 +1591,12 @@ const TaskManagement = () => {
                     <svg className="mr-2 text-blue-500" fill="currentColor" viewBox="0 0 20 20" width="1em" height="1em"><path fillRule="evenodd" d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1a1 1 0 100 2h1a1 1 0 01-1.707.707l-7-7a1 1 0 010-1.414z" clipRule="evenodd"></path><path fillRule="evenodd" d="M10 12a2 2 0 10-4 0v3a2 2 0 104 0v-3z" clipRule="evenodd"></path></svg>
                     <span className="text-sm text-slate-700 mr-2">Current Assigned File:</span>
                     <a 
-                      href={taskToEdit.assignedFile} 
+                      href={getDownloadLink(taskToEdit.assignedFile)} 
                       target="_blank" 
                       rel="noopener noreferrer" 
                       className="text-blue-600 hover:underline"
                     >
-                      View File
+                      Download File
                     </a>
                   </div>
                 )}

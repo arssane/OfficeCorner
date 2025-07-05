@@ -670,6 +670,22 @@ const EmployeeDashboard = () => {
     }
   };
 
+  // Helper function to get Cloudinary download link
+  const getDownloadLink = (fileUrl) => {
+    if (!fileUrl) return '#';
+    // Check if it's a Cloudinary URL
+    if (fileUrl.includes('res.cloudinary.com')) {
+      // Example Cloudinary URL: https://res.cloudinary.com/cloud_name/image/upload/v12345/path/to/file.ext
+      // We want to insert fl_attachment/ after /upload/
+      const parts = fileUrl.split('/upload/');
+      if (parts.length === 2) {
+        return `${parts[0]}/upload/fl_attachment/${parts[1]}`;
+      }
+    }
+    // For non-Cloudinary URLs or if parsing fails, return the original URL
+    return fileUrl;
+  };
+
   // Update task status, including file upload for completion
   const updateTaskStatus = async (taskId, newStatus) => {
     if (!checkAuthStatus()) return;
@@ -1075,7 +1091,8 @@ const EmployeeDashboard = () => {
                         <p className="flex items-center">
                           <Paperclip className="mr-1 text-blue-500" size={16} />
                           <strong className="text-green-700">Assigned File:</strong>{" "}
-                          <a href={task.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">View File</a>
+                          {/* Updated to use getDownloadLink for assigned files */}
+                          <a href={getDownloadLink(task.assignedFile)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">Download File</a>
                         </p>
                       )}
                       {task.completedFile && (
@@ -1336,7 +1353,8 @@ const EmployeeDashboard = () => {
               )}
               {selectedTask.assignedFile && (
                 <p className="flex items-center"><strong className="w-20 text-green-700">Assigned File:</strong>{" "}
-                  <a href={selectedTask.assignedFile} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View File</a>
+                  {/* Updated to use getDownloadLink for assigned files in modal */}
+                  <a href={getDownloadLink(selectedTask.assignedFile)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Download File</a>
                 </p>
               )}
               {selectedTask.completedFile && (

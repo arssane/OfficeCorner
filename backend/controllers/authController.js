@@ -1,8 +1,9 @@
 // controllers/authController.js - Updated with Email OTP authentication and approval emails
 import User from '../entities/User.js';
+import Department from '../entities/Department.js'; // Import Department model
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
-import { sendOTP, verifyOTP, sendGenericEmail } from '../services/emailService.js'; // Import sendGenericEmail
+import { sendOTP, verifyOTP, sendGenericEmail, sendDepartmentAssignmentEmail } from '../services/emailService.js'; // Import sendDepartmentAssignmentEmail
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -1176,6 +1177,73 @@ export const rejectUser = async (req, res, next) => {
 
   } catch (error) {
     console.error('Error rejecting user:', error);
+    next(error);
+  }
+};
+
+// NEW: Update user department and send email notification
+// @desc    Update a user's department and send notification email
+// @route   PUT /api/auth/users/:userId/department
+// @access  Private (Admin or authorized user)
+export const updateUserDepartment = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { department: newDepartmentId } = req.body; // New department ID (can be null for removal)
+
+    // Find the user by ID
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Store the old department ID for comparison
+    const oldDepartmentId = user.department ? user.department.toString() : null;
+
+    // Update the user's department
+    user.department = newDepartmentId || null; // Set to null if newDepartmentId is empty
+    await user.save();
+
+    // Determine if an email needs to be sent
+    if (newDepartmentId && newDepartmentId !== oldDepartmentId) {
+      // Department was assigned or changed
+      const department = await Department.findById(newDepartmentId).populate('manager', 'name'); // Populate manager name
+      
+      if (department) {
+        // Send email notification to the employee
+        await sendDepartmentAssignmentEmail(
+          user.email,
+          user.name || user.username,
+          {
+            name: department.name,
+            description: department.description,
+            location: department.location,
+            manager: department.manager // Manager object with name
+          },
+          process.env.FRONTEND_URL // Assuming a frontend URL for the employee dashboard/profile
+        );
+      } else {
+        console.warn(`Department with ID ${newDepartmentId} not found for email notification.`);
+      }
+    } else if (!newDepartmentId && oldDepartmentId) {
+      // Department was removed, send a different notification if desired
+      // For now, we'll just log this. You can add a specific email template for removal.
+      console.log(`Employee ${user.name || user.username} removed from department.`);
+    }
+
+    res.status(200).json({
+      message: 'User department updated successfully.',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        department: user.department,
+        name: user.name
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating user department:', error);
     next(error);
   }
 };

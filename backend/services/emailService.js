@@ -235,7 +235,6 @@ const getEmailTemplates = (userName = '', reason = '') => ({
       </div>
     `
   },
-  // UPDATED: Event Assignment Email Template to accept two links
   'event-assignment': {
     subject: (eventTitle) => `New Event Assigned: ${eventTitle}`,
     html: (eventDetails, adminProvidedEventLink, siteLink) => `
@@ -270,6 +269,90 @@ const getEmailTemplates = (userName = '', reason = '') => ({
             <p style="font-size: 14px;"><a href="${siteLink}" style="color: #1a73e8; text-decoration: underline;">${siteLink}</a></p>
           ` : '<p style="font-size: 16px;">A link to view event details on the site is not available.</p>'}
           <p style="font-size: 14px; color: #555; margin-top: 20px;">We look forward to your participation!</p>
+        </div>
+        <div style="text-align: center; padding: 15px; font-size: 12px; color: #777; border-top: 1px solid #e0e0e0; margin-top: 20px;">
+          <p>This is an automated message, please do not reply.</p>
+          <p>&copy; ${new Date().getFullYear()} Your Company Name. All rights reserved.</p>
+        </div>
+      </div>
+    `
+  },
+  // NEW: Task Assignment Email Template with greenish theme
+  'task-assignment': {
+    subject: (taskTitle) => `New Task Assigned: ${taskTitle}`,
+    html: (taskDetails, siteLink) => `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f0fff0; padding: 20px; border-radius: 8px; border: 1px solid #a3d9a5;">
+        <div style="background-color: #4CAF50; color: white; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">You've Been Assigned a New Task!</h2>
+        </div>
+        <div style="padding: 20px; color: #333;">
+          <p style="font-size: 16px;">Hello ${taskDetails.assignedUserName || 'Employee'},</p>
+          <p style="font-size: 16px;">A new task has been assigned to you:</p>
+          <ul style="list-style-type: none; padding: 0; margin: 20px 0;">
+            <li style="margin-bottom: 10px;"><strong>Title:</strong> ${taskDetails.title}</li>
+            <li style="margin-bottom: 10px;"><strong>Description:</strong> ${taskDetails.description || 'N/A'}</li>
+            <li style="margin-bottom: 10px;"><strong>Deadline:</strong> ${taskDetails.deadline || 'N/A'}</li>
+            <li style="margin-bottom: 10px;"><strong>Priority:</strong> ${taskDetails.priority || 'N/A'}</li>
+            <li style="margin-bottom: 10px;"><strong>Status:</strong> ${taskDetails.status || 'N/A'}</li>
+            ${taskDetails.assignedFile ? `<li style="margin-bottom: 10px;"><strong>Assigned File:</strong> <a href="${taskDetails.assignedFile}" style="color: #388E3C; text-decoration: underline;">View File</a></li>` : ''}
+          </ul>
+          ${siteLink ? ` 
+            <p style="font-size: 16px;">You can view more details about this task by clicking the button below:</p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 20px auto;">
+              <tr>
+                <td style="border-radius: 5px; background: #4CAF50; text-align: center;">
+                  <a href="${siteLink}" style="background: #4CAF50; border: 1px solid #4CAF50; font-family: Arial, sans-serif; font-size: 16px; line-height: 1.2; text-align: center; text-decoration: none; display: block; border-radius: 5px; font-weight: bold; padding: 12px 25px; color: #ffffff;">
+                    View Task Details
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="font-size: 14px; color: #555;">If the button above doesn't work, you can also copy and paste the following link into your browser:</p>
+            <p style="font-size: 14px;"><a href="${siteLink}" style="color: #4CAF50; text-decoration: underline;">${siteLink}</a></p>
+          ` : '<p style="font-size: 16px;">A link to view task details on the site is not available.</p>'}
+          <p style="font-size: 14px; color: #555; margin-top: 20px;">Please ensure to complete this task by the deadline.</p>
+        </div>
+        <div style="text-align: center; padding: 15px; font-size: 12px; color: #777; border-top: 1px solid #e0e0e0; margin-top: 20px;">
+          <p>This is an automated message, please do not reply.</p>
+          <p>&copy; ${new Date().getFullYear()} Your Company Name. All rights reserved.</p>
+        </div>
+      </div>
+    `
+  },
+  // NEW: Department Assignment Email Template with greenish theme
+  'department-assignment': {
+    subject: (departmentName) => `You've Been Assigned to the ${departmentName} Department!`,
+    html: (employeeName, departmentName, departmentDescription, departmentLocation, departmentManagerName, siteLink) => `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f0fff0; padding: 20px; border-radius: 8px; border: 1px solid #a3d9a5;">
+        <div style="background-color: #28a745; color: white; padding: 15px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">Department Assignment Notification</h2>
+        </div>
+        <div style="padding: 20px; color: #333;">
+          <p style="font-size: 16px;">Hello ${employeeName},</p>
+          <p style="font-size: 16px;">We are pleased to inform you that you have been assigned to the <strong>${departmentName}</strong> department!</p>
+          <p style="font-size: 16px;">Here are some details about your new department:</p>
+          <ul style="list-style-type: none; padding: 0; margin: 20px 0;">
+            <li style="margin-bottom: 10px;"><strong>Department Name:</strong> ${departmentName}</li>
+            ${departmentDescription ? `<li style="margin-bottom: 10px;"><strong>Description:</strong> ${departmentDescription}</li>` : ''}
+            ${departmentLocation ? `<li style="margin-bottom: 10px;"><strong>Location:</strong> ${departmentLocation}</li>` : ''}
+            ${departmentManagerName ? `<li style="margin-bottom: 10px;"><strong>Manager:</strong> ${departmentManagerName}</li>` : ''}
+          </ul>
+          <p style="font-size: 16px;">We are excited to have you join the team in this department. Please reach out to your manager or HR if you have any questions.</p>
+          ${siteLink ? ` 
+            <p style="font-size: 16px;">You can view your updated profile or department details by clicking the button below:</p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 20px auto;">
+              <tr>
+                <td style="border-radius: 5px; background: #28a745; text-align: center;">
+                  <a href="${siteLink}" style="background: #28a745; border: 1px solid #28a745; font-family: Arial, sans-serif; font-size: 16px; line-height: 1.2; text-align: center; text-decoration: none; display: block; border-radius: 5px; font-weight: bold; padding: 12px 25px; color: #ffffff;">
+                    View Details
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="font-size: 14px; color: #555;">If the button above doesn't work, you can also copy and paste the following link into your browser:</p>
+            <p style="font-size: 14px;"><a href="${siteLink}" style="color: #28a745; text-decoration: underline;">${siteLink}</a></p>
+          ` : '<p style="font-size: 16px;">A link to view details on the site is not available.</p>'}
+          <p style="font-size: 14px; color: #555; margin-top: 20px;">Welcome to your new department!</p>
         </div>
         <div style="text-align: center; padding: 15px; font-size: 12px; color: #777; border-top: 1px solid #e0e0e0; margin-top: 20px;">
           <p>This is an automated message, please do not reply.</p>
@@ -366,6 +449,73 @@ const sendEventAssignmentEmail = async (toEmail, eventDetails, adminProvidedEven
   } catch (error) {
     console.error(`❌ Error sending event assignment email to ${toEmail}:`, error);
     return { success: false, message: 'Failed to send event assignment email' };
+  }
+};
+
+// NEW: Function to send task assignment email
+const sendTaskAssignmentEmail = async (toEmail, taskDetails, siteLink) => {
+  try {
+    const transporter = createTransporter();
+    
+    const emailTemplates = getEmailTemplates(taskDetails.assignedUserName); // Pass assigned user's name
+    const template = emailTemplates['task-assignment'];
+    
+    if (!template) {
+      console.error(`❌ No email template found for purpose: task-assignment`);
+      return { success: false, message: `No email template found for purpose: task-assignment`}
+    }
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: toEmail,
+      subject: template.subject(taskDetails.title), // Subject can be dynamic
+      html: template.html(taskDetails, siteLink) // Pass task details and site link to the HTML template
+    };
+    
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Task assignment email sent to ${toEmail} for task: ${taskDetails.title}`);
+    
+    return { success: true, message: 'Task assignment email sent successfully' };
+  } catch (error) {
+    console.error(`❌ Error sending task assignment email to ${toEmail}:`, error);
+    return { success: false, message: 'Failed to send task assignment email' };
+  }
+}
+
+// NEW: Function to send department assignment email
+const sendDepartmentAssignmentEmail = async (toEmail, employeeName, departmentDetails, siteLink) => {
+  try {
+    const transporter = createTransporter();
+    
+    const emailTemplates = getEmailTemplates(employeeName);
+    const template = emailTemplates['department-assignment'];
+    
+    if (!template) {
+      console.error(`❌ No email template found for purpose: department-assignment`);
+      return { success: false, message: `No email template found for purpose: department-assignment` };
+    }
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: toEmail,
+      subject: template.subject(departmentDetails.name),
+      html: template.html(
+        employeeName,
+        departmentDetails.name,
+        departmentDetails.description,
+        departmentDetails.location,
+        departmentDetails.manager ? departmentDetails.manager.name : 'N/A', // Assuming manager object is populated
+        siteLink
+      )
+    };
+    
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Department assignment email sent to ${toEmail} for department: ${departmentDetails.name}`);
+    
+    return { success: true, message: 'Department assignment email sent successfully' };
+  } catch (error) {
+    console.error(`❌ Error sending department assignment email to ${toEmail}:`, error);
+    return { success: false, message: 'Failed to send department assignment email' };
   }
 };
 
@@ -490,6 +640,8 @@ export {
   verifyOTP,
   sendGenericEmail,
   sendEventAssignmentEmail, 
+  sendTaskAssignmentEmail,
+  sendDepartmentAssignmentEmail, // Export the new function
   cleanExpiredOTPs,
   getOTPStats,
   hasActiveOTP,
