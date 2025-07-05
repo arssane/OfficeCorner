@@ -37,9 +37,6 @@ const Toast = ({ message, type, onClose }) => {
 };
 
 
-const user = JSON.parse(localStorage.getItem('user'));
-const userRole = user?.role?.toLowerCase();
-
 // Helper functions for formatting dates and times
 const formatDateToYYYYMMDD = (date) => {
   if (!date) return '';
@@ -85,7 +82,7 @@ const formatDisplayTime = (timeString) => {
 
       const hour = dateObj.getHours();
       const minutes = dateObj.getMinutes();
-      const ampm = hour >= 12 ? 'PM' : 'AM'; // Corrected typo: amppm to ampm
+      const ampm = hour >= 12 ? 'PM' : 'AM';
       const hour12 = hour % 12 || 12;
 
       return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
@@ -152,6 +149,9 @@ const CalendarPlanning = () => {
   const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
   const assignToRef = useRef(null); // Ref for click outside logic
 
+  // State to manage user role, initialized in useEffect
+  const [userRole, setUserRole] = useState(null);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
   };
@@ -159,6 +159,22 @@ const CalendarPlanning = () => {
   const closeToast = () => {
     setToast(null);
   };
+
+  // Effect to set user role from localStorage on component mount
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const user = JSON.parse(storedUser);
+        setUserRole(user?.role?.toLowerCase());
+      } catch (e) {
+        console.error("Failed to parse user from localStorage:", e);
+        setUserRole(null);
+      }
+    } else {
+      setUserRole(null); // No user found
+    }
+  }, []); // Empty dependency array means this runs once on mount
 
   // Effect to handle clicks outside the employee/department dropdown
   useEffect(() => {
@@ -684,11 +700,16 @@ const CalendarPlanning = () => {
   };
 
   // Filter employees for dropdown based on search query
-  const assignableEmployees = employees.filter(employee =>
-    employee.role !== 'Administrator' &&
-    (employee.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
-     employee.username?.toLowerCase().includes(employeeSearchQuery.toLowerCase()))
-  );
+  const assignableEmployees = useMemo(() => {
+    if (!employeeSearchQuery) return employees.filter(employee => employee.role !== 'Administrator' && employee.role !== 'admin'); // Show all non-admins initially
+    const lowerCaseQuery = employeeSearchQuery.toLowerCase();
+    return employees.filter(employee =>
+      employee.role !== 'Administrator' && employee.role !== 'admin' &&
+      (employee.name?.toLowerCase().includes(lowerCaseQuery) ||
+       employee.username?.toLowerCase().includes(lowerCaseQuery) ||
+       `${employee.name || ''} (${employee.username || ''})`.toLowerCase().includes(lowerCaseQuery))
+    );
+  }, [employees, employeeSearchQuery]);
 
   // Helper to get assigned name for display
   const getAssignedToName = (assignedToId) => {
@@ -707,6 +728,7 @@ const CalendarPlanning = () => {
     return "Unknown Assignee";
   };
 
+  // Effect to handle modal open/close and set initial states for assignedTo fields
   useEffect(() => {
     if (isModalOpen) {
       setEmployeeSearchQuery("");
@@ -715,18 +737,28 @@ const CalendarPlanning = () => {
       setAssignToType('employee');
     }
     if (isEditModalOpen && editEvent) {
-      const assignedEmployee = employees.find(emp => (emp._id === editEvent.assignedTo || emp.id === editEvent.assignedTo));
-      if (assignedEmployee) {
-        setEmployeeSearchQuery(assignedEmployee.username ? `${assignedEmployee.name} (${assignedEmployee.username})` : assignedEmployee.name);
-        setEditEvent(prev => ({ ...prev, assignedTo: assignedEmployee._id || assignedEmployee.id }));
+      // Determine if it's an employee or department assignment
+      const isAssignedToDepartment = departments.some(dept => (dept._id === editEvent.assignedTo || dept.id === editEvent.assignedTo));
+      if (isAssignedToDepartment) {
+        setAssignToType('department');
+        setSelectedDepartmentForEvent(editEvent.assignedTo);
+        setEmployeeSearchQuery(""); // Clear employee search if department
+        setEditEvent(prev => ({ ...prev, assignedTo: editEvent.assignedTo })); // Ensure ID is kept
       } else {
-        setEmployeeSearchQuery("");
-        setEditEvent(prev => ({ ...prev, assignedTo: "" }));
+        setAssignToType('employee');
+        setSelectedDepartmentForEvent("");
+        const assignedEmployee = employees.find(emp => (emp._id === editEvent.assignedTo || emp.id === editEvent.assignedTo));
+        if (assignedEmployee) {
+          setEmployeeSearchQuery(assignedEmployee.username ? `${assignedEmployee.name} (${assignedEmployee.username})` : assignedEmployee.name);
+          setEditEvent(prev => ({ ...prev, assignedTo: assignedEmployee._id || assignedEmployee.id }));
+        } else {
+          // If assignedTo is not a recognized employee, clear the search query and assignedTo
+          setEmployeeSearchQuery("");
+          setEditEvent(prev => ({ ...prev, assignedTo: "" }));
+        }
       }
-      setAssignToType('employee'); // Force employee assignment for edit modal
-      setSelectedDepartmentForEvent("");
     }
-  }, [isModalOpen, isEditModalOpen, editEvent, employees]);
+  }, [isModalOpen, isEditModalOpen, editEvent, employees, departments]);
 
 
   return (
@@ -983,7 +1015,8 @@ const CalendarPlanning = () => {
                 onChange={(e) => {
                   setEmployeeSearchQuery(e.target.value);
                   setShowEmployeeDropdown(true);
-                  setNewEvent(prev => ({ ...prev, assignedTo: "" })); // Clear actual assignedTo when typing
+                  // Do NOT clear newEvent.assignedTo here immediately.
+                  // It should only be set when an item from the dropdown is clicked.
                 }}
                 onFocus={() => setShowEmployeeDropdown(true)}
               />
@@ -995,8 +1028,8 @@ const CalendarPlanning = () => {
                       className="p-2 hover:bg-gray-100 cursor-pointer text-gray-800"
                       onClick={() => {
                         const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
-                        setEmployeeSearchQuery(displayName);
-                        setNewEvent(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                        setEmployeeSearchQuery(displayName); // Set display name
+                        setNewEvent(prev => ({ ...prev, assignedTo: employee._id || employee.id })); // Set actual ID
                         setShowEmployeeDropdown(false);
                       }}
                     >
@@ -1005,9 +1038,11 @@ const CalendarPlanning = () => {
                   ))}
                 </ul>
               )}
+              {/* Only show "No matching employees found" if there's a query and no matches */}
               {employeeSearchQuery && assignableEmployees.length === 0 && (
                 <p className="text-sm text-red-500 mt-2">No matching employees found.</p>
               )}
+              {/* Show warning if something is typed but no selection is made */}
               {!newEvent.assignedTo && employeeSearchQuery && assignableEmployees.length > 0 && (
                 <p className="text-sm text-amber-600 mt-2">Please select an employee from the dropdown.</p>
               )}
@@ -1111,52 +1146,118 @@ const CalendarPlanning = () => {
                 </div>
               </div>
 
-              {/* Assign To Employee for Edit Modal (always employee-centric for simplicity) */}
-              <div className="mb-4 relative" ref={assignToRef}>
-                <label htmlFor="editAssignedToEmployee" className="block text-sm font-medium text-gray-700">Assigned To Employee</label>
-                <input
-                  type="text"
-                  id="editAssignedToEmployee"
-                  placeholder="Search or select employee"
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"
-                  value={employeeSearchQuery}
-                  onChange={(e) => {
-                    setEmployeeSearchQuery(e.target.value);
-                    setShowEmployeeDropdown(true);
-                    setEditEvent(prev => ({ ...prev, assignedTo: "" })); // Clear actual assignedTo when typing
-                  }}
-                  onFocus={() => setShowEmployeeDropdown(true)}
-                />
-                {showEmployeeDropdown && assignableEmployees.length > 0 && (
-                  <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto mt-1">
-                    {assignableEmployees.map(employee => (
-                      <li
-                        key={employee._id || employee.id}
-                        className="p-2 hover:bg-gray-100 cursor-pointer text-gray-800"
-                        onClick={() => {
-                          const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
-                          setEmployeeSearchQuery(displayName);
-                          setEditEvent(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
-                          setShowEmployeeDropdown(false);
-                        }}
-                      >
-                        {employee.name} {employee.username && `(${employee.username})`}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {employeeSearchQuery && assignableEmployees.length === 0 && (
-                  <p className="text-sm text-red-500 mt-2">No matching employees found.</p>
-                )}
-                {!editEvent.assignedTo && employeeSearchQuery && assignableEmployees.length > 0 && (
-                  <p className="text-sm text-amber-600 mt-2">Please select an employee from the dropdown.</p>
-                )}
+              {/* Assign To Type Selection for Edit Modal */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Assign To</label>
+                <div className="flex items-center space-x-4">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      className="form-radio text-green-600"
+                      name="editAssignToType"
+                      value="employee"
+                      checked={assignToType === 'employee'}
+                      onChange={() => {
+                        setAssignToType('employee');
+                        setSelectedDepartmentForEvent('');
+                        // Keep current employeeSearchQuery if it matches the current assigned employee
+                        const assignedEmployee = employees.find(emp => (emp._id === editEvent.assignedTo || emp.id === editEvent.assignedTo));
+                        if (!assignedEmployee) { // Clear if current assigned is not an employee
+                          setEmployeeSearchQuery("");
+                        }
+                      }}
+                    />
+                    <span className="ml-2 text-gray-700">Employee</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      className="form-radio text-green-600"
+                      name="editAssignToType"
+                      value="department"
+                      checked={assignToType === 'department'}
+                      onChange={() => {
+                        setAssignToType('department');
+                        setEditEvent(prev => ({ ...prev, assignedTo: selectedDepartmentForEvent }));
+                        setEmployeeSearchQuery(""); // Clear employee search when switching to department
+                      }}
+                    />
+                    <span className="ml-2 text-gray-700">Department</span>
+                  </label>
+                </div>
               </div>
+
+              {assignToType === 'employee' && (
+                <div className="mb-4 relative" ref={assignToRef}>
+                  <label htmlFor="editAssignedToEmployee" className="block text-sm font-medium text-gray-700">Assigned To Employee</label>
+                  <input
+                    type="text"
+                    id="editAssignedToEmployee"
+                    placeholder="Search or select employee"
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"
+                    value={employeeSearchQuery}
+                    onChange={(e) => {
+                      setEmployeeSearchQuery(e.target.value);
+                      setShowEmployeeDropdown(true);
+                      // Do NOT clear editEvent.assignedTo here immediately.
+                      // It should only be set when an item from the dropdown is clicked.
+                    }}
+                    onFocus={() => setShowEmployeeDropdown(true)}
+                  />
+                  {showEmployeeDropdown && assignableEmployees.length > 0 && (
+                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto mt-1">
+                      {assignableEmployees.map(employee => (
+                        <li
+                          key={employee._id || employee.id}
+                          className="p-2 hover:bg-gray-100 cursor-pointer text-gray-800"
+                          onClick={() => {
+                            const displayName = employee.username ? `${employee.name} (${employee.username})` : employee.name;
+                            setEmployeeSearchQuery(displayName);
+                            setEditEvent(prev => ({ ...prev, assignedTo: employee._id || employee.id }));
+                            setShowEmployeeDropdown(false);
+                          }}
+                        >
+                          {employee.name} {employee.username && `(${employee.username})`}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {employeeSearchQuery && assignableEmployees.length === 0 && (
+                    <p className="text-sm text-red-500 mt-2">No matching employees found.</p>
+                  )}
+                  {!editEvent.assignedTo && employeeSearchQuery && assignableEmployees.length > 0 && (
+                    <p className="text-sm text-amber-600 mt-2">Please select an employee from the dropdown.</p>
+                  )}
+                </div>
+              )}
+
+              {assignToType === 'department' && (
+                <div className="mb-4">
+                  <label htmlFor="editAssignedToDepartment" className="block text-sm font-medium text-gray-700">Assigned To Department</label>
+                  <select
+                    id="editAssignedToDepartment"
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                    value={selectedDepartmentForEvent}
+                    onChange={(e) => {
+                      setSelectedDepartmentForEvent(e.target.value);
+                      setEditEvent(prev => ({ ...prev, assignedTo: e.target.value }));
+                    }}
+                    required
+                  >
+                    <option value="">Select a Department</option>
+                    {departments.map(dept => (
+                      <option key={dept._id || dept.id} value={dept._id || dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               
               <div className="flex justify-end space-x-3">
                 <button type="button" onClick={() => {setIsEditModalOpen(false); setEditEvent(null);}}
                   className="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 transition-colors">Cancel</button>
-                <button type="submit" disabled={loading || !editEvent.assignedTo}
+                <button type="submit" disabled={loading || (assignToType === 'employee' && !editEvent.assignedTo) || (assignToType === 'department' && !selectedDepartmentForEvent)}
                   className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                   {loading ? 'Updating...' : 'Update Event'}
                 </button>

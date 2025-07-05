@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, MousePointerClick, RefreshCw, Eye, Paperclip, Upload, XCircle, CheckCircle, Check, MapPin, LogIn, LogOut, Link2, Clock, Calendar as CalendarIconLucide } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Calendar, MousePointerClick, RefreshCw, Eye, Paperclip, Upload, XCircle, CheckCircle, Check, MapPin, LogIn, LogOut, Link2, Clock, Calendar as CalendarIconLucide, Users } from 'lucide-react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -48,6 +48,9 @@ const EmployeeDashboard = () => {
 
   // New state to store department ID -> name mapping
   const [departmentNamesMap, setDepartmentNamesMap] = useState({});
+  // New states for employee and department data to resolve assignedTo names
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
 
   // State to hold the resolved employee data for display
   const [currentEmployee, setCurrentEmployee] = useState(null);
@@ -103,7 +106,7 @@ const EmployeeDashboard = () => {
         const ampm = hour >= 12 ? 'PM' : 'AM';
         const hour12 = hour % 12 || 12;
 
-        return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+        return `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`; // Corrected typo: amppm to ampm
     } catch (e) {
         console.error("Error formatting time:", e);
         return 'Error Time';
@@ -212,6 +215,16 @@ const EmployeeDashboard = () => {
     return `${baseUrl}/events`;
   };
 
+  const getEmployeeEndpoint = () => {
+    const storedEndpoint = localStorage.getItem("employeeEndpoint");
+    return storedEndpoint || `${getApiBaseUrl()}/users`;
+  };
+
+  const getDepartmentEndpoint = () => {
+    const storedEndpoint = localStorage.getItem("departmentEndpoint");
+    return storedEndpoint || `${getApiBaseUrl()}/departments`;
+  };
+
   // Function to fetch a single department's name by its ID
   const fetchDepartmentNameById = async (departmentId, token, baseUrl) => {
     // Check if the name is already in the map to avoid redundant API calls
@@ -234,6 +247,151 @@ const EmployeeDashboard = () => {
     return 'Unknown Department'; // Fallback if fetching fails
   };
 
+  // Fetch employees from API
+  const fetchEmployees = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError("Authentication token not found for employees. Please log in again.");
+        return;
+      }
+
+      const baseUrl = getApiBaseUrl();
+      const possibleEndpoints = [
+        `${baseUrl}/users`,
+        `${baseUrl}/auth/users`,
+        `${baseUrl}/employee`
+      ];
+
+      let response = null;
+      let lastError = null;
+      for (const endpoint of possibleEndpoints) {
+        try {
+          response = await axios.get(endpoint, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 8000
+          });
+          if (response.status >= 200 && response.status < 300) {
+            setError(null); // Clear previous errors on success
+            break; // Found a working endpoint
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch employees from ${endpoint}:`, err.message);
+          lastError = err; // Store the last error
+          response = null; // Reset response if this endpoint failed
+        }
+      }
+
+      if (response && response.status >= 200 && response.status < 300) {
+        const employeesData = response.data.users || response.data.data || response.data;
+        if (Array.isArray(employeesData)) {
+          const processedEmployees = employeesData.map(emp => ({
+            _id: emp._id || emp.id,
+            id: emp.id || emp._id,
+            name: emp.name || emp.username || emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unknown',
+            username: emp.username,
+            email: emp.email,
+            role: emp.role,
+            department: emp.department
+          }));
+          setEmployees(processedEmployees);
+          // localStorage.setItem('employees', JSON.stringify(processedEmployees)); // Optional: cache in local storage
+        }
+      } else {
+        const errorMessage = lastError?.response?.status === 403
+          ? "Permission denied to fetch employee data. Please ensure your account has access."
+          : "Failed to fetch employees from all known endpoints. Please check backend configuration.";
+        setError(errorMessage);
+        console.error("Failed to fetch employees from all known endpoints. Last error:", lastError);
+      }
+    } catch (err) {
+      console.error("Error fetching employees:", err);
+      setError(`An unexpected error occurred while fetching employees: ${err.message}`);
+    }
+  };
+
+  // Fetch departments from API
+  const fetchDepartments = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError("Authentication token not found for departments. Please log in again.");
+        return;
+      }
+
+      const baseUrl = getApiBaseUrl();
+      const possibleEndpoints = [
+        `${baseUrl}/department`,   // Prioritize this one as per EmployeeManagement.jsx
+        `${baseUrl}/departments`, // Original endpoint
+        `${baseUrl}/admin/departments`, // Admin specific
+      ];
+
+      let response = null;
+      let lastError = null;
+      for (const endpoint of possibleEndpoints) {
+        try {
+          response = await axios.get(endpoint, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 8000
+          });
+          if (response.status >= 200 && response.status < 300) {
+            setError(null); // Clear previous errors on success
+            break; // Found a working endpoint
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch departments from ${endpoint}:`, err.message);
+          lastError = err; // Store the last error
+          response = null; // Reset response if this endpoint failed
+        }
+      }
+
+      if (response && response.status >= 200 && response.status < 300) {
+        const departmentsData = response.data.departments || response.data.data || response.data;
+        if (Array.isArray(departmentsData)) {
+          const processedDepartments = departmentsData.map(dept => ({
+            _id: dept._id || dept.id,
+            id: dept.id || dept._id,
+            name: dept.name,
+            code: dept.code,
+          }));
+          setDepartments(processedDepartments);
+          // localStorage.setItem('departments', JSON.stringify(processedDepartments)); // Optional: cache in local storage
+        }
+      } else {
+        const errorMessage = lastError?.response?.status === 403
+          ? "Permission denied to fetch department data. Please ensure your account has access."
+          : "Failed to fetch departments from all known endpoints. Please check backend configuration.";
+        setError(errorMessage);
+        console.error("Failed to fetch departments from all known endpoints. Last error:", lastError);
+      }
+    } catch (err) {
+      console.error("Error fetching departments:", err);
+      setError(`An unexpected error occurred while fetching departments: ${err.message}`);
+    }
+  };
+
+  // Helper to get assigned name for display (copied from CalendarPlanning.jsx)
+  const getAssignedToName = (assignedToId) => {
+    // console.log("getAssignedToName called with assignedToId:", assignedToId);
+    // console.log("Current employees:", employees);
+    // console.log("Current departments:", departments);
+
+    if (!assignedToId) return "Unassigned";
+
+    const employee = employees.find(emp => (emp._id === assignedToId || emp.id === assignedToId));
+    if (employee) {
+      return employee.username ? `${employee.name} (${employee.username})` : employee.name;
+    }
+
+    const department = departments.find(dept => (dept._id === assignedToId || dept.id === assignedToId));
+    if (department) {
+      return `Department: ${department.name}`;
+    }
+
+    return "Unknown Assignee";
+  };
+
+
   // Enhanced profile fetching
   const fetchEmployeeProfile = async () => {
     if (!checkAuthStatus()) {
@@ -254,6 +412,7 @@ const EmployeeDashboard = () => {
 
       let fetchedUserData = null; // This will hold the raw data from the API
       let successfulEndpoint = '';
+      let lastError = null;
 
       for (const endpoint of possibleEndpoints) {
         try {
@@ -264,9 +423,11 @@ const EmployeeDashboard = () => {
           if (response.status >= 200 && response.status < 300 && response.data) {
             fetchedUserData = response.data.user || response.data;
             successfulEndpoint = endpoint;
+            setError(null); // Clear previous errors on success
             break;
           }
         } catch (error) {
+          lastError = error; // Store the last error
           if (axios.isAxiosError(error) && error.response?.status === 401) {
             handleLogout(new Event('click')); return;
           }
@@ -299,6 +460,7 @@ const EmployeeDashboard = () => {
           name: displayedName,
           email: fetchedUserData.email,
           department: departmentName, // Use the resolved name
+          departmentId: (typeof fetchedUserData.department === 'string' ? fetchedUserData.department : fetchedUserData.department?.id || fetchedUserData.department?._id) || null, // Store department ID if available
           position: fetchedUserData.position || 'Staff',
           username: fetchedUserData.username,
           status: fetchedUserData.status
@@ -309,7 +471,11 @@ const EmployeeDashboard = () => {
         setError(null);
         console.log("Fetched currentEmployee from API (with resolved department):", employeeData);
       } else {
-        setError("Failed to fetch profile information");
+        const errorMessage = lastError?.response?.status === 403
+          ? "Permission denied to fetch profile. Please ensure your account has access."
+          : "Failed to fetch profile information from all known endpoints. Please check backend configuration.";
+        setError(errorMessage);
+        console.error("Failed to fetch profile information. Last error:", lastError);
         navigate('/login');
       }
     } catch (err) {
@@ -583,7 +749,7 @@ const EmployeeDashboard = () => {
       }
 
       const baseUrl = getApiBaseUrl();
-      const possibleEndpoints = [`${baseUrl}/events`, `${baseUrl}/calendar/events`];
+      const possibleEndpoints = [`${baseUrl}/events`, `${baseUrl}/calendar/events`, `${baseUrl}/admin/events`];
 
       let fetchedData = null;
       let success = false;
@@ -607,8 +773,42 @@ const EmployeeDashboard = () => {
       }
 
       if (success && fetchedData && Array.isArray(fetchedData)) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Normalize today's date to start of day
+
         const processedEvents = fetchedData
-          .filter(event => event.visibility === 'public')
+          .filter(event => {
+            const eventDate = new Date(event.date);
+            eventDate.setHours(0, 0, 0, 0); // Normalize event date to start of day
+
+            // Filter out past events
+            if (eventDate < today) {
+              return false;
+            }
+
+            // Include public events
+            if (event.visibility === 'public') {
+              return true;
+            }
+
+            // Include private events assigned to the current employee or their department
+            const currentEmployeeId = currentEmployee?.id || currentEmployee?._id;
+            const currentDepartmentId = currentEmployee?.departmentId;
+
+            const assignedTo = event.assignedTo || event.assigned_to;
+
+            // Check if assigned to current employee
+            if (currentEmployeeId && assignedTo && assignedTo.toString() === currentEmployeeId.toString()) {
+                return true;
+            }
+
+            // Check if assigned to current employee's department
+            if (currentDepartmentId && assignedTo && assignedTo.toString() === currentDepartmentId.toString()) {
+                return true;
+            }
+
+            return false; // Exclude if not public and not assigned to current user/department
+          })
           .map(event => ({
             ...event,
             date: event.date?.split('T')[0] || '',
@@ -619,6 +819,7 @@ const EmployeeDashboard = () => {
             location: event.location || '',
             visibility: event.visibility || 'public',
             type: event.type || 'other',
+            assignedTo: event.assignedTo || '' // Ensure assignedTo is captured
           }));
         setEvents(processedEvents);
       } else {
@@ -910,6 +1111,12 @@ const EmployeeDashboard = () => {
     }
   }, [authChecked]);
 
+  // New: Fetch employees and departments on component mount
+  useEffect(() => {
+    fetchEmployees();
+    fetchDepartments();
+  }, []); // Empty dependency array means it runs once on mount
+
   useEffect(() => {
     // Only fetch profile if not already loaded or if the department needs resolving
     // This condition ensures fetchEmployeeProfile runs only when necessary.
@@ -922,7 +1129,8 @@ const EmployeeDashboard = () => {
     if (currentEmployee && isLoggedIn) {
       fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
       fetchAttendanceHistory(currentEmployee.id || currentEmployee._id);
-      fetchEvents();
+      // fetchEmployees() and fetchDepartments() are now called in a separate useEffect
+      fetchEvents(); // Call fetchEvents after currentEmployee is available
 
       const refreshInterval = setInterval(() => {
         fetchEmployeeTasks(currentEmployee.id || currentEmployee._id);
@@ -932,7 +1140,7 @@ const EmployeeDashboard = () => {
 
       return () => clearInterval(refreshInterval);
     }
-  }, [currentEmployee, isLoggedIn]);
+  }, [currentEmployee, isLoggedIn, employees, departments]); // Re-run when currentEmployee, isLoggedIn, employees, or departments changes
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'attendance' && !userLocation && !locationError) {
@@ -997,7 +1205,7 @@ const EmployeeDashboard = () => {
                 </div>
                 <Link to="/profile" className="block px-4 py-2 text-gray-800 hover:bg-gray-50 flex items-center">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 0 00-7-7z" />
                   </svg>
                   My Profile
                 </Link>
@@ -1160,7 +1368,7 @@ const EmployeeDashboard = () => {
               {/* Event List Section */}
               <div className="bg-white p-6 rounded-lg shadow-md mb-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-                  <h2 className="text-xl font-semibold text-green-800">Upcoming Public Events</h2>
+                  <h2 className="text-xl font-semibold text-green-800">Upcoming Events</h2>
                   <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
                     <input
                       type="text"
@@ -1185,7 +1393,7 @@ const EmployeeDashboard = () => {
                 {loading ? (
                   <div className="text-center py-4 text-gray-500">Loading events...</div>
                 ) : filteredEvents.length === 0 ? (
-                  <div className="text-center py-4 text-gray-500">No upcoming public events.</div>
+                  <div className="text-center py-4 text-gray-500">No upcoming events.</div>
                 ) : (
                   <div className="space-y-4">
                     {filteredEvents.map(event => (
@@ -1209,6 +1417,12 @@ const EmployeeDashboard = () => {
                               </>
                             )}
                           </p>
+                          {/* {event.assignedTo && (
+                            <p className="text-sm text-gray-500 flex items-center mt-1">
+                              <Users size={14} className="mr-1" />
+                              <strong className="font-medium">Assigned To:</strong> {getAssignedToName(event.assignedTo)}
+                            </p>
+                          )} */}
                         </div>
                         <div className="mt-2 sm:mt-0 flex flex-wrap gap-2">
                           {event.link && (
@@ -1472,6 +1686,12 @@ const EmployeeDashboard = () => {
               </p>
               <p className="flex items-center"><strong className="w-24 text-green-700">Type:</strong> {selectedEvent.type}</p>
               <p className="flex items-center"><strong className="w-24 text-green-700">Visibility:</strong> {selectedEvent.visibility}</p>
+              {/* {selectedEvent.assignedTo && (
+                <p className="text-sm text-gray-800 flex items-center">
+                  <Users size={16} className="mr-2 text-green-700" />
+                  <strong className="w-24 text-green-700">Assigned To:</strong> {getAssignedToName(selectedEvent.assignedTo)}
+                </p>
+              )} */}
               {selectedEvent.link && (
                 <p className="flex items-center">
                   <Link2 size={16} className="mr-2 text-green-700" />
