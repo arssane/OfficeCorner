@@ -11,6 +11,7 @@ const Dashboard = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [activeSection, setActiveSection] = useState("home"); // New state for active section
   const navigate = useNavigate();
 
   // Handle successful login
@@ -62,6 +63,49 @@ const Dashboard = () => {
     }
   }, []);
 
+  // Function to handle scroll and determine active section
+  useEffect(() => {
+    const handleScroll = () => {
+      const sections = ['home', 'about', 'services'];
+      let currentActive = 'home'; // Default to home
+
+      for (let i = sections.length - 1; i >= 0; i--) {
+        const sectionId = sections[i];
+        const section = document.getElementById(sectionId);
+        if (section) {
+          const rect = section.getBoundingClientRect();
+          // Check if the section is mostly in view
+          if (rect.top <= window.innerHeight / 2 && rect.bottom >= window.innerHeight / 2) {
+            currentActive = sectionId;
+            break;
+          }
+        }
+      }
+      setActiveSection(currentActive);
+    };
+
+    // Debounce the scroll event to improve performance
+    let timeout;
+    const debouncedHandleScroll = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(handleScroll, 100);
+    };
+
+    window.addEventListener('scroll', debouncedHandleScroll);
+    // Call once on mount to set initial active section
+    handleScroll(); 
+
+    return () => {
+      window.removeEventListener('scroll', debouncedHandleScroll);
+    };
+  }, []);
+
+  // Function to scroll to section and set active state
+  const scrollToSection = (sectionId) => {
+    document.getElementById(sectionId).scrollIntoView({ behavior: 'smooth' });
+    setActiveSection(sectionId); // Update active section immediately on click
+  };
+
   return (
     <div className="min-h-screen bg-green-900 text-white relative overflow-x-hidden">
       {/* Navbar */}
@@ -72,16 +116,31 @@ const Dashboard = () => {
         </div>
         
         <ul className="hidden md:flex gap-4">
-          <li className="cursor-pointer bg-transparent text-green-800 border border-green-800 px-4 py-2 rounded-full hover:bg-green-500 hover:text-white transition duration-300"  
-              onClick={() => document.getElementById('home').scrollIntoView({ behavior: 'smooth' })}>
+          <li 
+            className={`cursor-pointer px-4 py-2 rounded-full transition duration-300 ${
+              activeSection === "home" 
+                ? "bg-green-600 text-white shadow-md" 
+                : "bg-transparent text-green-800 border border-green-800 hover:bg-green-500 hover:text-white"
+            }`}  
+            onClick={() => scrollToSection('home')}>
             Home
           </li>
-          <li className="cursor-pointer bg-transparent text-green-800 border border-green-800 px-4 py-2 rounded-full hover:bg-green-500 hover:text-white transition duration-300"
-              onClick={() => document.getElementById('about').scrollIntoView({ behavior: 'smooth' })}>
+          <li 
+            className={`cursor-pointer px-4 py-2 rounded-full transition duration-300 ${
+              activeSection === "about" 
+                ? "bg-green-600 text-white shadow-md" 
+                : "bg-transparent text-green-800 border border-green-800 hover:bg-green-500 hover:text-white"
+            }`}
+            onClick={() => scrollToSection('about')}>
             About Us
           </li>
-          <li className="cursor-pointer bg-transparent text-green-800 border border-green-800 px-4 py-2 rounded-full hover:bg-green-500 hover:text-white transition duration-300"
-              onClick={() => document.getElementById('services').scrollIntoView({ behavior: 'smooth' })}>
+          <li 
+            className={`cursor-pointer px-4 py-2 rounded-full transition duration-300 ${
+              activeSection === "services" 
+                ? "bg-green-600 text-white shadow-md" 
+                : "bg-transparent text-green-800 border border-green-800 hover:bg-green-500 hover:text-white"
+            }`}
+            onClick={() => scrollToSection('services')}>
             Services
           </li>
         </ul>
@@ -105,16 +164,16 @@ const Dashboard = () => {
           ) : (
             <>
              <Link to="/login">
-  <button className="bg-green-600 text-white px-6 py-3 rounded-full hover:bg-green-700 transition duration-300 shadow-lg">
-    Log In →
-  </button>
-</Link>
+                <button className="bg-green-600 text-white px-6 py-3 rounded-full hover:bg-green-700 transition duration-300 shadow-lg">
+                    Log In →
+                </button>
+            </Link>
 
-<button
-  className="bg-green-600 text-white px-3 py-2 rounded-full hover:bg-green-700 transition duration-300 text-sm md:text-base"
->
-  <Link to="/signup">Sign Up</Link>
-</button>
+            <button
+                className="bg-green-600 text-white px-3 py-2 rounded-full hover:bg-green-700 transition duration-300 text-sm md:text-base"
+            >
+              <Link to="/signup">Sign Up</Link>
+            </button>
 
             </>
           )}
